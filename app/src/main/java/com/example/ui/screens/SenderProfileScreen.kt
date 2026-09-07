@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Message
@@ -174,7 +175,73 @@ fun SenderProfileScreen(
         }
       }
 
-      Spacer(modifier = Modifier.height(20.dp))
+      Spacer(modifier = Modifier.height(16.dp))
+
+      // KARTA TOŻSAMOŚCI I DANYCH KONTAKTOWYCH (Sekcja 49: Discord/WhatsApp style profile details)
+      Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Column(
+          modifier = Modifier.padding(16.dp),
+          verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+          Text(
+            text = "DANE KONTAKTOWE I TOŻSAMOŚĆ",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.primary
+          )
+
+          // Numery telefonów
+          if (profile.phoneNumbers.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Icon(Icons.Default.Phone, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(18.dp))
+              Spacer(modifier = Modifier.width(12.dp))
+              Column {
+                Text("Numery telefonów / Adres", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                Text(profile.phoneNumbers.joinToString(", "), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+              }
+            }
+          }
+
+          // Adres e-mail
+          if (!profile.email.isNullOrBlank()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Icon(Icons.Default.Email, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(18.dp))
+              Spacer(modifier = Modifier.width(12.dp))
+              Column {
+                Text("Adres e-mail", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                Text(profile.email, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+              }
+            }
+          }
+
+          // Powiązane domeny
+          if (profile.domains.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.Top) {
+              Icon(Icons.Default.Link, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(18.dp).padding(top = 2.dp))
+              Spacer(modifier = Modifier.width(12.dp))
+              Column {
+                Text("Domeny powiązane", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                Text(profile.domains.joinToString(", "), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+              }
+            }
+          }
+
+          // Status reputacji
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+              Text("Status reputacji", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+              Text(profile.reputationStatus, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            }
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(16.dp))
 
       // Wspólna ocena ryzyka (Risk Bar)
       Text(
@@ -197,6 +264,36 @@ fun SenderProfileScreen(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
           )
+        }
+      }
+
+      // Oficjalne domeny marki (Sekcja 49)
+      if (profile.recognizedBrand?.officialDomains?.isNotEmpty() == true) {
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+          text = "OFICJALNE DOMENY I IDENTYFIKATORY MARKI",
+          style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+          color = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Card(
+          shape = RoundedCornerShape(16.dp),
+          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Column(modifier = Modifier.padding(16.dp)) {
+            profile.recognizedBrand.officialDomains.forEach { domain ->
+              Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(domain, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+              }
+            }
+            if (profile.recognizedBrand.educationalNote != null) {
+              Spacer(modifier = Modifier.height(8.dp))
+              Text(profile.recognizedBrand.educationalNote, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+          }
         }
       }
 

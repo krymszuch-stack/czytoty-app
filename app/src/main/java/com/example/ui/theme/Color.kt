@@ -2,21 +2,22 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Polish Scam Protection & Unified Phone System Palette - Material 3 Dark Luxury
-val AppDarkBackground = Color(0xFF0F0E15)
-val AppSurface = Color(0xFF161521)
-val AppSurfaceVariant = Color(0xFF1B1928)
-val AppSurfaceContainerHigh = Color(0xFF232034)
-val AppBorder = Color(0xFF29253C)
-val AppBorderSubtle = Color(0xFF221F33)
+// CzyToTy? Color Workflow & Design System Palette
+val AppDarkBackground = Color(0xFF0A0A12)
+val AppSurface = Color(0xFF131424)
+val AppSurfaceVariant = Color(0xFF1A1B30)
+val AppSurfaceContainerHigh = Color(0xFF22233C)
+val AppBorder = Color(0xFF272540)
+val AppBorderSubtle = Color(0x26A875FF)
 
-// Primary Purple Accents
-val AppPurple = Color(0xFF9E8CFC)
-val AppPurplePrimary = Color(0xFF8B77FF)
-val AppPurpleLight = Color(0xFFB8AAFF)
-val AppPurpleContainer = Color(0xFF29204A)
-val AppPurpleGlow = Color(0xFF3B2F6A)
-val AppPurpleTrack = Color(0xFFC4B8FF)
+// Brand Purples & Gradients ("Serduszko produktu")
+val AppPurple = Color(0xFFA875FF)
+val AppPurplePrimary = Color(0xFF7B4DFF)
+val AppPurpleLight = Color(0xFFC49BFF)
+val AppPurpleLavender = Color(0xFFD4B8FF)
+val AppPurpleContainer = Color(0xFF231A45)
+val AppPurpleGlow = Color(0x407B4DFF)
+val AppPurpleTrack = Color(0xFFC49BFF)
 
 // Semantic Risk / Call Colors
 val AppRed = Color(0xFFEF5350)
@@ -30,9 +31,14 @@ val AppGreenContainer = Color(0xFF132B1E)
 val AppBlue = Color(0xFF3B82F6)
 val AppBlueContainer = Color(0xFF132338)
 
+// SAP Corporate Trust Color
+val SapGold = Color(0xFFE5A93C)
+val SapBlue = Color(0xFF0070F2)
+val SapVerifiedGreen = Color(0xFF107E3E)
+
 val AppTextPrimary = Color(0xFFFFFFFF)
-val AppTextSecondary = Color(0xFF9E9BAE)
-val AppTextMuted = Color(0xFF706D84)
+val AppTextSecondary = Color(0xFF9499AD)
+val AppTextMuted = Color(0xFF6C6F85)
 
 // Material 3 Dark Scheme Mappings
 val md_theme_dark_primary = AppPurple

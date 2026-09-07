@@ -104,64 +104,28 @@ fun HomeScreen(
       .padding(horizontal = 18.dp, vertical = 12.dp)
   ) {
 
-    // 1. TOP BAR (Centrum komunikacji + U avatar)
-    Row(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(vertical = 6.dp),
-      verticalAlignment = Alignment.CenterVertically
-    ) {
-      // Ikona tarczy z pulsem
-      Box(
-        modifier = Modifier
-          .size(42.dp)
-          .clip(CircleShape)
-          .background(AppPurpleContainer),
-        contentAlignment = Alignment.Center
-      ) {
-        Icon(
-          imageVector = Icons.Default.Security,
-          contentDescription = null,
-          tint = AppPurple,
-          modifier = Modifier.size(24.dp)
-        )
+    // 1. BRAND HEADER CzyToTy? ("Serduszko produktu")
+    com.example.ui.components.CzyToTyBrandHeader(
+      subtitle = "WIESZ, ZANIM ODBIERZESZ",
+      showLogo = true,
+      logoSize = 48.dp
+    )
+
+    Spacer(modifier = Modifier.height(14.dp))
+
+    // 2. CZTERY FILARY MARKI (Ochrona, Telefon, Wiadomości, Dla każdego)
+    com.example.ui.components.CzyToTyPillarsSection(
+      onPillarClick = { pillarIndex ->
+        when (pillarIndex) {
+          0 -> onNavigateToProtection()
+          1 -> onNavigateToCheck()
+          2 -> onNavigateToMessages()
+          3 -> onNavigateToContacts()
+        }
       }
+    )
 
-      Spacer(modifier = Modifier.width(12.dp))
-
-      Column(modifier = Modifier.weight(1f)) {
-        Text(
-          text = "Centrum komunikacji",
-          fontSize = 22.sp,
-          fontWeight = FontWeight.Bold,
-          color = AppTextPrimary
-        )
-        Text(
-          text = "Bezpieczniej każdego dnia",
-          fontSize = 13.sp,
-          color = AppTextSecondary
-        )
-      }
-
-      // Avatar użytkownika "U"
-      Box(
-        modifier = Modifier
-          .size(40.dp)
-          .clip(CircleShape)
-          .background(AppPurpleContainer)
-          .clickable { /* Otwórz profil */ },
-        contentAlignment = Alignment.Center
-      ) {
-        Text(
-          text = "U",
-          fontSize = 16.sp,
-          fontWeight = FontWeight.Bold,
-          color = AppPurple
-        )
-      }
-    }
-
-    Spacer(modifier = Modifier.height(18.dp))
+    Spacer(modifier = Modifier.height(16.dp))
 
     // 2. KARTA GŁÓWNA: Ochrona jest aktywna
     Card(

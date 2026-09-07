@@ -76,8 +76,8 @@ enum class OnboardingStep(
   WELCOME(
     0,
     "step_welcome",
-    "Prywatność i reputacja połączeń",
-    "Aplikacja pomaga ocenić ryzyko nieznanego połączenia na podstawie transparentnych sygnałów, chroniąc Twoją prywatność."
+    "CzyToTy? – Wiesz, zanim odbierzesz",
+    "Spokój zaczyna się od informacji. Telefon, Wiadomości i Ochrona zintegrowane w jednym przejrzystym systemie."
   ),
   ZERO_TRUST(
     1,
@@ -314,20 +314,10 @@ private fun WelcomeStepContent() {
       modifier = Modifier.padding(20.dp),
       horizontalAlignment = Alignment.CenterHorizontally
     ) {
-      Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-          .size(72.dp)
-          .clip(CircleShape)
-          .background(MaterialTheme.colorScheme.primaryContainer)
-      ) {
-        Icon(
-          imageVector = Icons.Default.Shield,
-          contentDescription = null,
-          tint = MaterialTheme.colorScheme.primary,
-          modifier = Modifier.size(38.dp)
-        )
-      }
+      com.example.ui.components.CzyToTyLogo(
+        size = 80.dp,
+        variant = com.example.ui.components.LogoVariant.DARK
+      )
 
       Spacer(modifier = Modifier.height(18.dp))
 

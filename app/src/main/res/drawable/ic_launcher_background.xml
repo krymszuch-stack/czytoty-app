@@ -13,13 +13,13 @@
                 android:endX="108"
                 android:endY="108"
                 android:type="linear">
-                <item android:color="#1A2D42" android:offset="0.0" />
-                <item android:color="#0F1B29" android:offset="1.0" />
+                <item android:color="#1A1333" android:offset="0.0" />
+                <item android:color="#0A0A12" android:offset="1.0" />
             </gradient>
         </aapt:attr>
     </path>
-    <!-- Subtle circular accents for depth -->
+    <!-- Subtelna poświata glow w tle ikony -->
     <path
-        android:fillColor="#15FFFFFF"
-        android:pathData="M54,54m-42,0a42,42 0,1 1,84 0a42,42 0,1 1,-84 0" />
+        android:fillColor="#207B4DFF"
+        android:pathData="M54,54m-38,0a38,38 0,1 1,76 0a38,38 0,1 1,-76 0" />
 </vector>

@@ -1,0 +1,20 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Kontur tarczy -->
+    <path
+        android:strokeColor="#C49BFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M12,2 L4,5 L4,11 C4,16.5 7.4,21.6 12,22.8 C16.6,21.6 20,16.5 20,11 L20,5 L12,2 Z" />
+    <!-- Checkmark w tarczy -->
+    <path
+        android:strokeColor="#C49BFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M9,12 L11.5,14.5 L15.5,9.5" />
+</vector>

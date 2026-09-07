@@ -45,8 +45,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import com.example.conversation.safety.manager.ConversationSafetyManager
 import com.example.model.CallerInfo
 import com.example.model.RiskSeverity
+import com.example.ui.components.ConversationSafetySection
 import com.example.ui.components.RiskBadge
 import com.example.ui.components.VerifiedBusinessBadge
 import com.example.ui.components.ZeroTrustBankBanner
@@ -58,9 +64,12 @@ fun IncomingCallScreen(
   onAnswer: () -> Unit,
   onReject: () -> Unit,
   isSimulatedPreview: Boolean = true,
+  safetyManager: ConversationSafetyManager = remember { ConversationSafetyManager() },
   modifier: Modifier = Modifier
 ) {
   val isSuspicious = caller.severity == RiskSeverity.HIGH || caller.severity == RiskSeverity.ELEVATED
+  val coroutineScope = rememberCoroutineScope()
+  val safetyState by safetyManager.state.collectAsState()
 
   Box(
     modifier = modifier
@@ -129,17 +138,15 @@ fun IncomingCallScreen(
           verticalAlignment = Alignment.CenterVertically,
           modifier = Modifier.padding(bottom = 12.dp)
         ) {
-          Icon(
-            imageVector = Icons.Default.Shield,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(18.dp)
+          com.example.ui.components.CzyToTyLogo(
+            size = 28.dp,
+            variant = com.example.ui.components.LogoVariant.DARK
           )
-          Spacer(modifier = Modifier.width(6.dp))
+          Spacer(modifier = Modifier.width(8.dp))
           Text(
-            text = "Reputacja połączenia",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.outline
+            text = "CzyToTy? • WIESZ, ZANIM ODBIERZESZ",
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+            color = com.example.ui.theme.AppPurpleLight
           )
         }
       }
@@ -232,8 +239,11 @@ fun IncomingCallScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 3. Specjalny baner Zero Trust dla instytucji finansowej (rozwiązanie paradoksu bezpiecznego banku)
-        if (caller.isFinancialInstitution) {
+        // 3. Weryfikacja SAP lub Specjalny baner Zero Trust dla instytucji finansowej
+        if (caller.sapPartner != null) {
+          com.example.ui.components.SapVerifiedBadge(partner = caller.sapPartner)
+          Spacer(modifier = Modifier.height(12.dp))
+        } else if (caller.isFinancialInstitution) {
           ZeroTrustBankBanner(caller = caller)
           Spacer(modifier = Modifier.height(12.dp))
         } else if (caller.isOfficialDirectoryNumber) {
@@ -277,6 +287,24 @@ fun IncomingCallScreen(
             )
           }
         }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 4b. Analiza bezpieczeństwa rozmowy na żądanie użytkownika (Conversation Safety Snapshot)
+        ConversationSafetySection(
+          state = safetyState,
+          onStartAnalysis = {
+            safetyManager.startAnalysis(
+              callerNumber = caller.phoneNumber,
+              scope = coroutineScope
+            )
+          },
+          onCancelAnalysis = {
+            safetyManager.cancel()
+          },
+          onRejectCall = onReject,
+          onContinueCall = onAnswer
+        )
       }
 
       Spacer(modifier = Modifier.height(16.dp))

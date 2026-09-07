@@ -12,14 +12,16 @@ import androidx.room.RoomDatabase
     CrowdReportEntity::class,
     ScreeningEventEntity::class,
     SmsThreadEntity::class,
-    SmsMessageEntity::class
+    SmsMessageEntity::class,
+    com.example.sap.SapPartnerEntity::class
   ],
-  version = 2,
+  version = 3,
   exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
 
   abstract fun callerDao(): CallerDao
+  abstract fun sapCallerDao(): com.example.sap.SapCallerDao
 
   companion object {
     @Volatile

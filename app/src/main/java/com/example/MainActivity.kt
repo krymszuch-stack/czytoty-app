@@ -46,6 +46,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,14 +62,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.activity.viewModels
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
+import com.example.auth.viewmodel.AuthViewModel
 import com.example.model.CallRecord
 import com.example.model.CallType
+import com.example.safetycheck.manager.SafetyCheckManager
+import com.example.safetycheck.repository.SafetyCheckRepository
+import com.example.ui.components.LinkSafetyDialog
 import com.example.ui.components.PostCallRatingCard
 import com.example.ui.components.ReportBottomSheet
+import com.example.ui.components.SafetyCheckTriggerDialog
+import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.ContactsScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.IncomingCallScreen
 import com.example.ui.screens.MoreSettingsScreen
+import com.example.ui.screens.SafetyCheckSettingsScreen
 import com.example.ui.screens.NumberDetailsScreen
 import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.ProtectionScreen
@@ -75,6 +88,7 @@ import com.example.ui.screens.RecentCallsScreen
 import com.example.ui.screens.SenderProfileScreen
 import com.example.ui.screens.SmsConversationDetailScreen
 import com.example.ui.screens.SmsConversationsScreen
+import com.example.ui.screens.EngineDebugScreen
 import com.example.ui.screens.UnifiedContactDetailScreen
 import com.example.ui.screens.VerifyNumberScreen
 import com.example.ui.theme.AppBorder
@@ -85,35 +99,58 @@ import com.example.viewmodel.CallerViewModel
 import com.example.viewmodel.SimulationCallType
 
 class MainActivity : ComponentActivity() {
+  private val authViewModel: AuthViewModel by viewModels()
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+
+    // Obsługa powrotu z przeglądarki (PKCE deeplink) przy zimnym starcie
+    intent?.let { authViewModel.handleDeeplink(it) }
+
     setContent {
       MyApplicationTheme {
-        MainAppContent()
+        MainAppContent(authViewModel = authViewModel)
       }
     }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    // Obsługa powrotu z Custom Tabs (czytoty://auth) w trybie singleTop
+    authViewModel.handleDeeplink(intent)
   }
 }
 
 sealed class NavigationTab(
   val title: String,
-  val selectedIcon: ImageVector,
-  val unselectedIcon: ImageVector,
-  val testTag: String
+  val selectedIcon: ImageVector? = null,
+  val unselectedIcon: ImageVector? = null,
+  val testTag: String,
+  val drawableRes: Int? = null
 ) {
-  object Ostatnie : NavigationTab("Ostatnie", Icons.Default.Home, Icons.Outlined.Home, "tab_recent")
-  object Wiadomosci : NavigationTab("Wiadomości", Icons.Default.ChatBubble, Icons.Outlined.ChatBubbleOutline, "tab_messages")
+  object Ostatnie : NavigationTab("Ostatnie", Icons.Default.Home, Icons.Outlined.Home, "tab_recent", R.drawable.ic_phone_lookup)
+  object Wiadomosci : NavigationTab("Wiadomości", Icons.Default.ChatBubble, Icons.Outlined.ChatBubbleOutline, "tab_messages", R.drawable.ic_messages_sms)
   object Sprawdz : NavigationTab("Sprawdź", Icons.Default.Search, Icons.Outlined.Search, "tab_check")
-  object Ochrona : NavigationTab("Ochrona", Icons.Default.Shield, Icons.Outlined.Shield, "tab_protection")
-  object Profil : NavigationTab("Profil", Icons.Default.Person, Icons.Outlined.Person, "tab_profile")
+  object Ochrona : NavigationTab("Ochrona", Icons.Default.Shield, Icons.Outlined.Shield, "tab_protection", R.drawable.ic_protection_shield)
+  object Profil : NavigationTab("Profil", Icons.Default.Person, Icons.Outlined.Person, "tab_profile", R.drawable.ic_everyone_people)
 }
 
 @Composable
-fun MainAppContent(viewModel: CallerViewModel = viewModel()) {
+fun MainAppContent(
+  viewModel: CallerViewModel = viewModel(),
+  authViewModel: AuthViewModel = viewModel()
+) {
   val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+  val authUiState by authViewModel.uiState.collectAsStateWithLifecycle()
   val snackbarHostState = remember { SnackbarHostState() }
   val context = LocalContext.current
+
+  val safetyCheckRepository = remember { SafetyCheckRepository() }
+  val safetyCheckManager = remember { SafetyCheckManager(safetyCheckRepository) }
+  val safetyCheckState by safetyCheckManager.state.collectAsState()
+  var isSafetyCheckSettingsOpen by remember { mutableStateOf(false) }
 
   val tabs = listOf(
     NavigationTab.Ostatnie,
@@ -130,13 +167,72 @@ fun MainAppContent(viewModel: CallerViewModel = viewModel()) {
     }
   }
 
+  LaunchedEffect(authUiState.errorMessage) {
+    authUiState.errorMessage?.let { error ->
+      snackbarHostState.showSnackbar(error)
+      authViewModel.clearError()
+    }
+  }
+
   // 1. Ekran połączenia przychodzącego (Call Screen / Overlay)
   if (uiState.incomingCallPreview != null) {
     IncomingCallScreen(
       caller = uiState.incomingCallPreview!!,
-      onAnswer = { viewModel.dismissIncomingCall() },
-      onReject = { viewModel.dismissIncomingCall() },
+      onAnswer = { viewModel.answerIncomingCall() },
+      onReject = { viewModel.dismissIncomingCall(triggerRating = false) },
       isSimulatedPreview = true
+    )
+    return
+  }
+
+  // 1b. Ekran aktywnego połączenia (Interactive In-Call Screen - Sekcje 76–96)
+  if (uiState.activeInCallState != null) {
+    val inCallScope = rememberCoroutineScope()
+    androidx.compose.runtime.DisposableEffect(Unit) {
+      val proximityManager = com.example.incall.sensor.AndroidProximitySensorManager(context, inCallScope)
+      proximityManager.setAudioRoute(uiState.activeInCallState!!.audioRoute)
+      proximityManager.startMonitoring()
+      val job = inCallScope.launch {
+        proximityManager.proximityState.collect { proxState ->
+          viewModel.onProximitySensorEvent(proxState == com.example.incall.model.ProximityState.NEAR)
+        }
+      }
+      onDispose {
+        job.cancel()
+        proximityManager.stopMonitoring()
+      }
+    }
+
+    com.example.ui.screens.incall.ActiveCallScreen(
+      uiState = uiState.activeInCallState!!,
+      onToggleMute = { viewModel.toggleInCallMute() },
+      onToggleSpeaker = { viewModel.toggleInCallSpeaker() },
+      onToggleHold = { viewModel.toggleInCallHold() },
+      onToggleKeypad = { viewModel.toggleInCallKeypad(it) },
+      onDtmfDigit = { viewModel.sendInCallDtmfDigit(it) },
+      onClearDtmf = { viewModel.clearInCallDtmf() },
+      onToggleContextExpansion = { viewModel.toggleInCallContextExpansion(it) },
+      onHangup = { viewModel.hangupActiveCall() },
+      onOpenMessages = {
+        val number = uiState.activeInCallState!!.caller.phoneNumber
+        viewModel.openSenderProfile(number)
+      },
+      onStartSafetyCheck = {
+        viewModel.setInCallDynamicRiskWarning("Aktywna ochrona: analiza bezpieczeństwa w toku")
+      }
+    )
+    return
+  }
+
+  // 1b. Ekran logowania Supabase Auth (Google OAuth + PKCE / Guest Mode)
+  if (authUiState.isAuthScreenVisible) {
+    BackHandler { authViewModel.closeAuthScreen() }
+    AuthScreen(
+      isLoading = authUiState.isLoading,
+      errorMessage = authUiState.errorMessage,
+      onSignInWithGoogle = { authViewModel.signInWithGoogle() },
+      onContinueAsGuest = { authViewModel.continueAsGuest() },
+      onDismiss = { authViewModel.closeAuthScreen() }
     )
     return
   }
@@ -145,6 +241,13 @@ fun MainAppContent(viewModel: CallerViewModel = viewModel()) {
   if (uiState.isOnboardingVisible) {
     BackHandler { viewModel.dismissOnboarding() }
     OnboardingScreen(onComplete = { viewModel.dismissOnboarding() })
+    return
+  }
+
+  // 2b. Ekran Diagnostyki Silnika v1.0.0 (Inspector dla developera / audytora)
+  if (uiState.isEngineDebugVisible) {
+    BackHandler { viewModel.closeEngineDebug() }
+    EngineDebugScreen(onBack = { viewModel.closeEngineDebug() })
     return
   }
 
@@ -157,8 +260,11 @@ fun MainAppContent(viewModel: CallerViewModel = viewModel()) {
         thread = activeThread,
         messages = uiState.activeThreadMessages,
         onBack = { viewModel.closeThread() },
-        onSenderProfileClick = { sender -> viewModel.openContactForAddress(sender) },
-        onSendMessage = { text -> viewModel.sendSms(text) }
+        onSenderProfileClick = { sender -> viewModel.openSenderProfile(sender) },
+        onSendMessage = { text -> viewModel.sendSms(text) },
+        onOpenLinkModal = { analysis, isOfficial, brandName ->
+          viewModel.openLinkSafetyModal(analysis, isOfficial, brandName)
+        }
       )
       return
     }
@@ -275,6 +381,16 @@ fun MainAppContent(viewModel: CallerViewModel = viewModel()) {
     return
   }
 
+  // 8. Ekran konfiguracji Trybu Pomocy (Safety Check - 100% OPT-IN)
+  if (isSafetyCheckSettingsOpen) {
+    BackHandler { isSafetyCheckSettingsOpen = false }
+    SafetyCheckSettingsScreen(
+      repository = safetyCheckRepository,
+      onBack = { isSafetyCheckSettingsOpen = false }
+    )
+    return
+  }
+
   // Główny szkielet z dolną nawigacją (Material 3 Dark luxury)
   Scaffold(
     containerColor = AppDarkBackground,
@@ -309,12 +425,21 @@ fun MainAppContent(viewModel: CallerViewModel = viewModel()) {
               .testTag(tab.testTag),
             horizontalAlignment = Alignment.CenterHorizontally
           ) {
-            Icon(
-              imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-              contentDescription = tab.title,
-              tint = if (isSelected) AppPurple else Color(0xFF827F97),
-              modifier = Modifier.size(22.dp)
-            )
+            if (tab.drawableRes != null) {
+              Icon(
+                painter = androidx.compose.ui.res.painterResource(id = tab.drawableRes),
+                contentDescription = tab.title,
+                tint = if (isSelected) AppPurple else Color(0xFF827F97),
+                modifier = Modifier.size(22.dp)
+              )
+            } else {
+              Icon(
+                imageVector = if (isSelected) tab.selectedIcon!! else tab.unselectedIcon!!,
+                contentDescription = tab.title,
+                tint = if (isSelected) AppPurple else Color(0xFF827F97),
+                modifier = Modifier.size(22.dp)
+              )
+            }
 
             Spacer(modifier = Modifier.height(3.dp))
 
@@ -381,7 +506,13 @@ fun MainAppContent(viewModel: CallerViewModel = viewModel()) {
             onNewMessage = {
               viewModel.openSmsWithRecipient("+48 600 000 000")
             },
-            onSimulateSms = { scenario -> viewModel.triggerSmsSimulation(scenario) }
+            onSimulateSms = { scenario -> viewModel.triggerSmsSimulation(scenario) },
+            onTogglePin = { threadId -> viewModel.togglePinThread(threadId) },
+            onReorderPinned = { from, to -> viewModel.reorderPinnedThreads(from, to) },
+            onToggleMute = { threadId -> viewModel.toggleMuteThread(threadId) },
+            onToggleArchive = { threadId -> viewModel.toggleArchiveThread(threadId) },
+            onDeleteThread = { threadId -> viewModel.deleteThreadLocally(threadId) },
+            onMarkSpam = { threadId -> viewModel.markThreadAsSpam(threadId) }
           )
 
           // 2: Sprawdź (Sprawdź numer - SEKCJE 19–31: Crowdsourcing i Dynamiczna Reputacja)
@@ -415,8 +546,14 @@ fun MainAppContent(viewModel: CallerViewModel = viewModel()) {
           // 4: Profil (Konto i uprawnienia)
           4 -> MoreSettingsScreen(
             userProfile = uiState.userProfile,
+            authUser = authUiState.currentUser,
+            isGuestMode = authUiState.isGuestMode,
+            onSignInClick = { authViewModel.openAuthScreen() },
+            onSignOutClick = { authViewModel.signOut() },
             onOpenOnboarding = { viewModel.showOnboarding() },
-            onOpenContacts = { viewModel.openContactsScreen() }
+            onOpenContacts = { viewModel.openContactsScreen() },
+            onOpenEngineDebug = { viewModel.openEngineDebug() },
+            onOpenSafetyCheck = { isSafetyCheckSettingsOpen = true }
           )
         }
       }
@@ -452,5 +589,21 @@ fun MainAppContent(viewModel: CallerViewModel = viewModel()) {
         }
       )
     }
+  }
+
+  // Overlay Trybu Pomocy (Safety Check Countdown / Alert Confirmation)
+  SafetyCheckTriggerDialog(
+    state = safetyCheckState,
+    onConfirmedOk = { safetyCheckManager.userAcknowledgedOk() },
+    onRequestHelpNow = { safetyCheckManager.userRequestedHelpNow() },
+    onDismiss = { safetyCheckManager.cancel() }
+  )
+
+  // Modal weryfikacji linku (Link Safety - Sekcja 48)
+  uiState.activeLinkModal?.let { modalState ->
+    LinkSafetyDialog(
+      state = modalState,
+      onDismiss = { viewModel.dismissLinkSafetyModal() }
+    )
   }
 }

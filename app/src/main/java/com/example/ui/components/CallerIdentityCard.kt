@@ -150,7 +150,9 @@ fun CallerIdentityCard(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
       ) {
-        if (caller.isOfficialDirectoryNumber) {
+        if (caller.sapPartner != null) {
+          SapVerifiedBadge(partner = caller.sapPartner)
+        } else if (caller.isOfficialDirectoryNumber) {
           caller.numberIdentity?.registeredEntityName?.let { orgName ->
             VerifiedBusinessBadge(
               label = "W rejestrze",

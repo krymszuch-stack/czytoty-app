@@ -126,7 +126,8 @@ data class CallerInfo(
   val subCategories: List<String> = emptyList(),
   val riskReasonExplanation: String = "Brak wystarczającej liczby zgłoszeń do analizy",
   val isVerifiedCallerIdentityPossible: Boolean = false, // Zawsze false dla standardowej telefonii GSM!
-  val communityReputation: CommunityReputation? = null
+  val communityReputation: CommunityReputation? = null,
+  val sapPartner: com.example.sap.SapBusinessPartner? = null
 ) {
   val severity: RiskSeverity
     get() = RiskSeverity.fromScore(riskScore)
@@ -136,6 +137,9 @@ data class CallerInfo(
 
   val isOfficialDirectoryNumber: Boolean
     get() = numberIdentity?.isPublicDirectoryListed == true
+
+  val isSapVerified: Boolean
+    get() = sapPartner != null && sapPartner.isVerifiedPartner
 }
 
 enum class CallType {
@@ -182,7 +186,8 @@ data class ProtectionSettings(
   val lastUpdatedTime: String = "Przed chwilą (lokalny cache)",
   val blockedTodayCount: Int = 1,
   val warningsTodayCount: Int = 4,
-  val isCallScreeningRoleGranted: Boolean = false
+  val isCallScreeningRoleGranted: Boolean = false,
+  val showSmsPreviewInCall: Boolean = true
 )
 
 data class UserProfile(

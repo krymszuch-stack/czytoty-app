@@ -1,0 +1,43 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="128dp"
+    android:height="128dp"
+    android:viewportWidth="128"
+    android:viewportHeight="128">
+
+    <!-- Białe tło squircle -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M28,8 L100,8 C113.25,8 120,14.75 120,28 L120,100 C120,113.25 113.25,120 100,120 L28,120 C14.75,120 8,113.25 8,100 L8,28 C8,14.75 14.75,8 28,8 Z" />
+
+    <!-- Obrys squircle dla kontrastu -->
+    <path
+        android:strokeColor="#000000"
+        android:strokeWidth="2"
+        android:pathData="M28,8 L100,8 C113.25,8 120,14.75 120,28 L120,100 C120,113.25 113.25,120 100,120 L28,120 C14.75,120 8,113.25 8,100 L8,28 C8,14.75 14.75,8 28,8 Z" />
+
+    <!-- Górna część: Czarny dymek czatu -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M38,28 C50,22 72,22 84,33 C94,42 94,56 86,66 C80,73 72,76 66,80 C62,83 60,88 60,92 L52,92 C52,84 56,78 62,74 C68,70 74,68 78,63 C83,57 83,48 78,42 C71,35 56,35 44,42 C38,46 34,53 32,60 L24,56 C27,45 31,34 38,28 Z" />
+
+    <!-- 3 kropki wewnątrz dymka (...) - Białe -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M44,46m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M56,46m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M68,46m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0" />
+
+    <!-- Dolna część: Czarna słuchawka telefonu -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M84,52 C89,58 91,67 85,77 C79,88 68,94 59,98 C56,99 54,97 55,94 C57,88 61,81 66,74 C71,67 76,61 80,53 C81,50 83,49 84,52 Z" />
+
+    <!-- Kropka znaku zapytania na dole (Czarna) -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M56,108m-5.5,0a5.5,5.5 0,1 1,11 0a5.5,5.5 0,1 1,-11 0" />
+</vector>

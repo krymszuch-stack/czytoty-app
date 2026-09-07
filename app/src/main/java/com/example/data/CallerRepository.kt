@@ -25,6 +25,7 @@ import com.example.model.QuickRating
 import com.example.model.RiskSeverity
 import com.example.model.ScoringEngine
 import com.example.model.SmsMessage
+import com.example.model.SmsMessageType
 import com.example.model.SmsThread
 import com.example.model.SubCategory
 import com.example.model.UnifiedContact
@@ -63,6 +64,14 @@ interface CallerRepository {
   fun sendSms(threadId: String, text: String): SmsMessage
   fun addIncomingSms(sender: String, body: String)
   fun triggerSmsSimulation(scenario: SmsSimulationScenario)
+
+  // Modern SMS / Messenger UX operations (Sekcje 41, 50, 51)
+  fun togglePinThread(threadId: String)
+  fun reorderPinnedThreads(fromIndex: Int, toIndex: Int)
+  fun toggleMuteThread(threadId: String)
+  fun toggleArchiveThread(threadId: String)
+  fun deleteThreadLocally(threadId: String)
+  fun markThreadAsSpam(threadId: String)
 
   // Unified sender profile (Cross-channel: Call + SMS)
   fun getUnifiedSenderProfile(senderAddress: String): UnifiedSenderProfile
@@ -248,12 +257,59 @@ class DefaultCallerRepository(
     )
   }
 
+  // 5. Zweryfikowany partner biznesowy SAP (SAP SE Polska)
+  private val sapPartnerCaller = run {
+    val sapPartner = com.example.sap.SapBusinessPartner(
+      businessPartnerId = "SAP-BP-100290",
+      companyName = "SAP Polska Sp. z o.o.",
+      contactPerson = "Wsparcie Klienta SAP",
+      phoneNumber = "+48 22 541 67 00",
+      department = "Enterprise Technical Support",
+      trustScore = 100,
+      sapSystemInstance = "SAP S/4HANA Cloud (EMEA)"
+    )
+    val identity = NumberIdentity(
+      isPublicDirectoryListed = true,
+      registeredEntityName = "SAP Polska Sp. z o.o.",
+      entityCategory = "Oprogramowanie i usługi IT (SAP)",
+      isFinancialInstitution = false,
+      officialSourceUrl = "https://www.sap.com/poland"
+    )
+    CallerInfo(
+      phoneNumber = "+48 22 541 67 00",
+      formattedNumber = "+48 22 541 67 00",
+      displayName = "SAP Polska Sp. z o.o.",
+      numberIdentity = identity,
+      callPurpose = "Zweryfikowany partner korporacyjny SAP",
+      riskScore = 0,
+      confidence = ConfidenceLevel.WYSOKA,
+      category = "Zweryfikowany Partner SAP",
+      totalReports = 0,
+      reportsLast24h = 0,
+      reportsLastHour = 0,
+      firstSeen = "SAP Business Partner Directory",
+      lastSeen = "Dzisiaj, 13:10",
+      subCategories = listOf("SAP Verified", "BTP Cloud", "S/4HANA"),
+      riskReasonExplanation = "Numer zweryfikowany w bazie SAP S/4HANA Enterprise.",
+      isVerifiedCallerIdentityPossible = true,
+      sapPartner = sapPartner
+    )
+  }
+
   private val _knownCallers = MutableStateFlow(
-    listOf(pkoInboundHotline, scamNumber, dpdCourier, telemarketingNumber)
+    listOf(pkoInboundHotline, scamNumber, dpdCourier, telemarketingNumber, sapPartnerCaller)
   )
 
   private val _recentCalls = MutableStateFlow(
     listOf(
+      CallRecord(
+        id = "call-sap",
+        caller = sapPartnerCaller,
+        timestamp = "Dzisiaj, 13:10",
+        callType = CallType.INCOMING,
+        durationSeconds = 120,
+        isLocalCallVerified = true
+      ),
       CallRecord(
         id = "call-1",
         caller = pkoInboundHotline,
@@ -476,7 +532,7 @@ class DefaultCallerRepository(
     val initialMessages = mutableMapOf<String, List<SmsMessage>>()
     val initialThreads = mutableListOf<SmsThread>()
 
-    // 1. Google (OTP)
+    // 1. Google (OTP) - Przypięty
     val threadGoogle = "thread-google"
     val analysisGoogle = SmsRiskAnalyzer.analyzeMessage(
       sender = "Google",
@@ -488,7 +544,7 @@ class DefaultCallerRepository(
       threadId = threadGoogle,
       senderAddress = "Google",
       body = "G-847213 to Twój kod weryfikacyjny Google. Nikomu go nie udostępniaj.",
-      timestamp = "13:20",
+      timestamp = "Dzisiaj, 09:12",
       timestampEpoch = System.currentTimeMillis() - 1000 * 60 * 15,
       isOutgoing = false,
       isRead = false,
@@ -496,7 +552,8 @@ class DefaultCallerRepository(
       urlAnalysis = analysisGoogle.urlAnalysis,
       riskScore = analysisGoogle.riskScore,
       riskSeverity = analysisGoogle.severity,
-      riskReasons = analysisGoogle.reasons
+      riskReasons = analysisGoogle.reasons,
+      messageType = SmsMessageType.OTP
     )
     initialMessages[threadGoogle] = listOf(msgGoogle)
     initialThreads.add(
@@ -505,17 +562,66 @@ class DefaultCallerRepository(
         senderAddress = "Google",
         displayName = "Google",
         recognizedBrand = BrandCatalog.google,
-        lastMessageSnippet = "G-847213 to Twój kod weryfikacyjny Google...",
-        lastMessageTimestamp = "13:20",
+        lastMessageSnippet = "Kod jednorazowy: 847 213 (Weryfikacja)",
+        lastMessageTimestamp = "Dzisiaj, 09:12",
         lastMessageTimestampEpoch = msgGoogle.timestampEpoch,
         unreadCount = 1,
         highestRiskScore = 0,
         highestSeverity = RiskSeverity.NO_KNOWN_RISK,
-        hasOtp = true
+        hasOtp = true,
+        isPinned = true,
+        pinOrder = 0,
+        categoryTag = "Kod SMS",
+        isBrandVerified = true
       )
     )
 
-    // 2. Scam Smishing (ten sam numer +48 732 123 456 co w vishingu!)
+    // 2. DPD Polska (Przesyłka) - Przypięty
+    val threadDpd = "thread-dpd"
+    val dpdBody = "Twoja przesyłka jest w drodze. Planowana dostawa dzisiaj do godz. 14:30. Kurier: Marek, tel. 600 111 222."
+    val analysisDpd = SmsRiskAnalyzer.analyzeMessage(
+      sender = "DPD Polska",
+      body = dpdBody,
+      recognizedBrand = BrandCatalog.dpd
+    )
+    val msgDpd = SmsMessage(
+      id = "msg-dpd1",
+      threadId = threadDpd,
+      senderAddress = "DPD Polska",
+      body = dpdBody,
+      timestamp = "Dzisiaj, 08:44",
+      timestampEpoch = System.currentTimeMillis() - 1000 * 60 * 45,
+      isOutgoing = false,
+      isRead = false,
+      otpInfo = analysisDpd.otpInfo,
+      urlAnalysis = analysisDpd.urlAnalysis,
+      riskScore = analysisDpd.riskScore,
+      riskSeverity = analysisDpd.severity,
+      riskReasons = analysisDpd.reasons,
+      messageType = SmsMessageType.DELIVERY
+    )
+    initialMessages[threadDpd] = listOf(msgDpd)
+    initialThreads.add(
+      SmsThread(
+        threadId = threadDpd,
+        senderAddress = "DPD Polska",
+        displayName = "DPD Polska",
+        recognizedBrand = BrandCatalog.dpd,
+        lastMessageSnippet = "Twoja przesyłka jest w drodze. Planowana dostawa...",
+        lastMessageTimestamp = "Dzisiaj, 08:44",
+        lastMessageTimestampEpoch = msgDpd.timestampEpoch,
+        unreadCount = 1,
+        highestRiskScore = 0,
+        highestSeverity = RiskSeverity.NO_KNOWN_RISK,
+        hasOtp = false,
+        isPinned = true,
+        pinOrder = 1,
+        categoryTag = "Przesyłka",
+        isBrandVerified = true
+      )
+    )
+
+    // 3. Scam Smishing (Podszywanie pod InPost / Dopłata do paczki)
     val threadScam = "thread-scam"
     val scamBody = "INPOST: Twoja przesyłka wymaga dopłaty 1.89 zł ze względu na błąd wagi. Opłać teraz, aby uniknąć zwrotu: http://inpost-doplata-paczka.xyz/pay"
     val analysisScam = SmsRiskAnalyzer.analyzeMessage(
@@ -528,7 +634,7 @@ class DefaultCallerRepository(
       threadId = threadScam,
       senderAddress = "+48 732 123 456",
       body = scamBody,
-      timestamp = "11:59",
+      timestamp = "Wczoraj, 16:03",
       timestampEpoch = System.currentTimeMillis() - 1000 * 60 * 95,
       isOutgoing = false,
       isRead = false,
@@ -536,27 +642,31 @@ class DefaultCallerRepository(
       urlAnalysis = analysisScam.urlAnalysis,
       riskScore = analysisScam.riskScore,
       riskSeverity = analysisScam.severity,
-      riskReasons = analysisScam.reasons
+      riskReasons = analysisScam.reasons,
+      messageType = SmsMessageType.SUSPICIOUS
     )
     initialMessages[threadScam] = listOf(msgScam)
     initialThreads.add(
       SmsThread(
         threadId = threadScam,
         senderAddress = "+48 732 123 456",
-        displayName = "Podejrzany numer",
+        displayName = "TwojaWygrana.pl / Podejrzany",
         recognizedBrand = null,
         lastMessageSnippet = "INPOST: Twoja przesyłka wymaga dopłaty 1.89 zł...",
-        lastMessageTimestamp = "11:59",
+        lastMessageTimestamp = "Wczoraj, 16:03",
         lastMessageTimestampEpoch = msgScam.timestampEpoch,
         unreadCount = 1,
         highestRiskScore = analysisScam.riskScore,
         highestSeverity = analysisScam.severity,
         hasOtp = false,
-        isSpamOrBlocked = true
+        isSpamOrBlocked = true,
+        isPinned = false,
+        categoryTag = "Podejrzane",
+        isBrandVerified = false
       )
     )
 
-    // 3. InPost (Autentyczny / Oficjalna domena inpost.pl)
+    // 4. InPost (Autentyczny Paczkomat)
     val threadInpost = "thread-inpost"
     val inpostBody = "Paczka 62349182 czeka w Paczkomacie WAW12A (Warszawa, ul. Marszałkowska 10) do 08.09 14:00. Kod odbioru: 492011. Szczegóły: https://inpost.pl"
     val analysisInpost = SmsRiskAnalyzer.analyzeMessage(
@@ -569,15 +679,16 @@ class DefaultCallerRepository(
       threadId = threadInpost,
       senderAddress = "InPost",
       body = inpostBody,
-      timestamp = "Wczoraj",
-      timestampEpoch = System.currentTimeMillis() - 1000 * 60 * 60 * 24,
+      timestamp = "Wczoraj, 18:30",
+      timestampEpoch = System.currentTimeMillis() - 1000 * 60 * 60 * 20,
       isOutgoing = false,
       isRead = true,
       otpInfo = analysisInpost.otpInfo,
       urlAnalysis = analysisInpost.urlAnalysis,
       riskScore = analysisInpost.riskScore,
       riskSeverity = analysisInpost.severity,
-      riskReasons = analysisInpost.reasons
+      riskReasons = analysisInpost.reasons,
+      messageType = SmsMessageType.DELIVERY
     )
     initialMessages[threadInpost] = listOf(msgInpost)
     initialThreads.add(
@@ -586,24 +697,69 @@ class DefaultCallerRepository(
         senderAddress = "InPost",
         displayName = "InPost",
         recognizedBrand = BrandCatalog.inPost,
-        lastMessageSnippet = "Paczka 62349182 czeka w Paczkomacie WAW12A. Kod odbioru: 492011...",
-        lastMessageTimestamp = "Wczoraj",
+        lastMessageSnippet = "Paczka czeka w Paczkomacie WAW12A. Kod odbioru: 492011...",
+        lastMessageTimestamp = "Wczoraj, 18:30",
         lastMessageTimestampEpoch = msgInpost.timestampEpoch,
         unreadCount = 0,
         highestRiskScore = 0,
         highestSeverity = RiskSeverity.NO_KNOWN_RISK,
-        hasOtp = true
+        hasOtp = true,
+        categoryTag = "Przesyłka",
+        isBrandVerified = true
       )
     )
 
-    // 4. Mama (prywatny kontakt)
+    // 5. Bank X / mBank
+    val threadBank = "thread-bank"
+    val bankBody = "Zalogowano się na Twoje konto z nowego urządzenia (Firefox, Windows). Jeśli to nie Ty, zmień hasło w serwisie transakcyjnym."
+    val analysisBank = SmsRiskAnalyzer.analyzeMessage(
+      sender = "Bank X",
+      body = bankBody,
+      recognizedBrand = BrandCatalog.mBank
+    )
+    val msgBank = SmsMessage(
+      id = "msg-bank1",
+      threadId = threadBank,
+      senderAddress = "Bank X",
+      body = bankBody,
+      timestamp = "Wczoraj, 19:20",
+      timestampEpoch = System.currentTimeMillis() - 1000 * 60 * 60 * 22,
+      isOutgoing = false,
+      isRead = false,
+      otpInfo = null,
+      urlAnalysis = null,
+      riskScore = 0,
+      riskSeverity = RiskSeverity.NO_KNOWN_RISK,
+      riskReasons = listOf("Oficjalny komunikat bankowy bez linków"),
+      messageType = SmsMessageType.BANK_FINANCE
+    )
+    initialMessages[threadBank] = listOf(msgBank)
+    initialThreads.add(
+      SmsThread(
+        threadId = threadBank,
+        senderAddress = "Bank X",
+        displayName = "Bank X",
+        recognizedBrand = BrandCatalog.mBank,
+        lastMessageSnippet = "Zalogowano się na Twoje konto z nowego urządzenia...",
+        lastMessageTimestamp = "Wczoraj, 19:20",
+        lastMessageTimestampEpoch = msgBank.timestampEpoch,
+        unreadCount = 1,
+        highestRiskScore = 0,
+        highestSeverity = RiskSeverity.NO_KNOWN_RISK,
+        hasOtp = false,
+        categoryTag = "Finanse",
+        isBrandVerified = true
+      )
+    )
+
+    // 6. Mama (Prywatny)
     val threadMom = "thread-mom"
     val msgMom = SmsMessage(
       id = "msg-mom1",
       threadId = threadMom,
       senderAddress = "+48 601 234 567",
-      body = "Cześć, czy będziesz w niedzielę na obiedzie? Kupiłam już składniki na szarlotkę.",
-      timestamp = "Wczoraj",
+      body = "Czy możesz zadzwonić, gdy będziesz miał chwilę? Kupiłam już składniki na szarlotkę ❤️",
+      timestamp = "Wczoraj, 13:37",
       timestampEpoch = System.currentTimeMillis() - 1000 * 60 * 60 * 26,
       isOutgoing = false,
       isRead = true,
@@ -611,7 +767,8 @@ class DefaultCallerRepository(
       urlAnalysis = null,
       riskScore = 0,
       riskSeverity = RiskSeverity.NO_KNOWN_RISK,
-      riskReasons = listOf("Prywatna wiadomość bez linków i żądań")
+      riskReasons = listOf("Prywatna wiadomość bez linków"),
+      messageType = SmsMessageType.NORMAL
     )
     initialMessages[threadMom] = listOf(msgMom)
     initialThreads.add(
@@ -620,18 +777,57 @@ class DefaultCallerRepository(
         senderAddress = "+48 601 234 567",
         displayName = "Mama",
         recognizedBrand = null,
-        lastMessageSnippet = "Cześć, czy będziesz w niedzielę na obiedzie?...",
-        lastMessageTimestamp = "Wczoraj",
+        lastMessageSnippet = "Czy możesz zadzwonić, gdy będziesz miał chwilę? ❤️",
+        lastMessageTimestamp = "Wczoraj, 13:37",
         lastMessageTimestampEpoch = msgMom.timestampEpoch,
         unreadCount = 0,
         highestRiskScore = 0,
         highestSeverity = RiskSeverity.NO_KNOWN_RISK,
-        hasOtp = false
+        hasOtp = false,
+        categoryTag = null,
+        isBrandVerified = false
+      )
+    )
+
+    // 7. Przychodnia
+    val threadClinic = "thread-clinic"
+    val clinicBody = "Przypominamy o wizycie u lekarza rodzinnego jutro o godz. 10:00. Prosimy o punktualność."
+    val msgClinic = SmsMessage(
+      id = "msg-clinic1",
+      threadId = threadClinic,
+      senderAddress = "Przychodnia",
+      body = clinicBody,
+      timestamp = "11.04.2026",
+      timestampEpoch = System.currentTimeMillis() - 1000 * 60 * 60 * 72,
+      isOutgoing = false,
+      isRead = true,
+      messageType = SmsMessageType.SYSTEM
+    )
+    initialMessages[threadClinic] = listOf(msgClinic)
+    initialThreads.add(
+      SmsThread(
+        threadId = threadClinic,
+        senderAddress = "Przychodnia",
+        displayName = "Przychodnia",
+        recognizedBrand = null,
+        lastMessageSnippet = "Przypominamy o wizycie jutro o godz. 10:00...",
+        lastMessageTimestamp = "11.04.2026",
+        lastMessageTimestampEpoch = msgClinic.timestampEpoch,
+        unreadCount = 0,
+        highestRiskScore = 0,
+        highestSeverity = RiskSeverity.NO_KNOWN_RISK,
+        hasOtp = false,
+        categoryTag = "Ważne",
+        isBrandVerified = false
       )
     )
 
     _smsMessages.value = initialMessages
-    _smsThreads.value = initialThreads
+    _smsThreads.value = initialThreads.sortedWith(
+      compareByDescending<SmsThread> { it.isPinned }
+        .thenBy { it.pinOrder }
+        .thenByDescending { it.lastMessageTimestampEpoch }
+    )
   }
 
   // =================== IMPLEMENTACJA SMS ===================
@@ -664,7 +860,9 @@ class DefaultCallerRepository(
       timestamp = "Teraz",
       timestampEpoch = System.currentTimeMillis(),
       isOutgoing = true,
-      isRead = true
+      isRead = true,
+      messageType = SmsMessageType.NORMAL,
+      deliveryStatus = "Wysłano SMS"
     )
 
     _smsMessages.update { map ->
@@ -688,6 +886,70 @@ class DefaultCallerRepository(
     return newMsg
   }
 
+  override fun togglePinThread(threadId: String) {
+    _smsThreads.update { threads ->
+      val target = threads.firstOrNull { it.threadId == threadId } ?: return@update threads
+      val newPinned = !target.isPinned
+      val currentMaxOrder = threads.filter { it.isPinned }.maxOfOrNull { it.pinOrder } ?: 0
+      threads.map {
+        if (it.threadId == threadId) {
+          it.copy(isPinned = newPinned, pinOrder = if (newPinned) currentMaxOrder + 1 else 0)
+        } else it
+      }.sortedWith(
+        compareByDescending<SmsThread> { it.isPinned }
+          .thenBy { it.pinOrder }
+          .thenByDescending { it.lastMessageTimestampEpoch }
+      )
+    }
+  }
+
+  override fun reorderPinnedThreads(fromIndex: Int, toIndex: Int) {
+    _smsThreads.update { threads ->
+      val pinned = threads.filter { it.isPinned }.toMutableList()
+      val unpinned = threads.filterNot { it.isPinned }
+      if (fromIndex in pinned.indices && toIndex in pinned.indices) {
+        val item = pinned.removeAt(fromIndex)
+        pinned.add(toIndex, item)
+        val reorderedPinned = pinned.mapIndexed { idx, thread -> thread.copy(pinOrder = idx) }
+        reorderedPinned + unpinned
+      } else {
+        threads
+      }
+    }
+  }
+
+  override fun toggleMuteThread(threadId: String) {
+    _smsThreads.update { threads ->
+      threads.map { if (it.threadId == threadId) it.copy(isMuted = !it.isMuted) else it }
+    }
+  }
+
+  override fun toggleArchiveThread(threadId: String) {
+    _smsThreads.update { threads ->
+      threads.map { if (it.threadId == threadId) it.copy(isArchived = !it.isArchived) else it }
+    }
+  }
+
+  override fun deleteThreadLocally(threadId: String) {
+    _smsThreads.update { threads -> threads.filterNot { it.threadId == threadId } }
+    _smsMessages.update { map -> map - threadId }
+  }
+
+  override fun markThreadAsSpam(threadId: String) {
+    _smsThreads.update { threads ->
+      threads.map {
+        if (it.threadId == threadId) {
+          it.copy(
+            isSpamOrBlocked = true,
+            highestRiskScore = 95,
+            highestSeverity = RiskSeverity.HIGH,
+            categoryTag = "Podejrzane"
+          )
+        } else it
+      }
+    }
+  }
+
   override fun addIncomingSms(sender: String, body: String) {
     val brand = BrandCatalog.findBrandBySender(sender)
     val analysis = SmsRiskAnalyzer.analyzeMessage(sender, body, brand)
@@ -708,7 +970,9 @@ class DefaultCallerRepository(
       urlAnalysis = analysis.urlAnalysis,
       riskScore = analysis.riskScore,
       riskSeverity = analysis.severity,
-      riskReasons = analysis.reasons
+      riskReasons = analysis.reasons,
+      messageType = analysis.messageType,
+      deliveryStatus = "Odebrano SMS"
     )
 
     _smsMessages.update { map ->
@@ -730,11 +994,21 @@ class DefaultCallerRepository(
         highestRiskScore = maxOf(existingThread?.highestRiskScore ?: 0, analysis.riskScore),
         highestSeverity = if (analysis.severity.ordinal > (existingThread?.highestSeverity?.ordinal ?: 0)) analysis.severity else (existingThread?.highestSeverity ?: analysis.severity),
         hasOtp = analysis.otpInfo != null || (existingThread?.hasOtp == true),
-        isSpamOrBlocked = analysis.severity == RiskSeverity.HIGH || (existingThread?.isSpamOrBlocked == true)
+        isSpamOrBlocked = analysis.severity == RiskSeverity.HIGH || (existingThread?.isSpamOrBlocked == true),
+        isPinned = existingThread?.isPinned ?: false,
+        pinOrder = existingThread?.pinOrder ?: 0,
+        isMuted = existingThread?.isMuted ?: false,
+        isArchived = existingThread?.isArchived ?: false,
+        categoryTag = existingThread?.categoryTag ?: analysis.messageType.tagLabel,
+        isBrandVerified = brand != null && brand.knownSenderIds.any { it.equals(sender, ignoreCase = true) }
       )
 
       val filtered = threads.filter { it.threadId != threadId }
-      listOf(updatedThread) + filtered
+      (listOf(updatedThread) + filtered).sortedWith(
+        compareByDescending<SmsThread> { it.isPinned }
+          .thenBy { it.pinOrder }
+          .thenByDescending { it.lastMessageTimestampEpoch }
+      )
     }
   }
 
@@ -831,10 +1105,26 @@ class DefaultCallerRepository(
       riskFactors.add("Brak zarejestrowanych incydentów i skarg")
     }
 
+    val matchingContact = getContactForAddress(clean)
+    val phoneNumbers = (matchingContact?.allPhoneNumbers.orEmpty() + (knownCaller?.phoneNumber?.let { listOf(it) } ?: listOf(clean))).distinct()
+    val email = matchingContact?.email
+    val domains = (matchingContact?.officialDomains.orEmpty() + brand?.officialDomains.orEmpty()).distinct()
+    val reputationStatus = when {
+      combinedRisk >= 70 -> "Wysokie ryzyko • Zagrożenie oszustwem"
+      brand != null -> "Rozpoznana oficjalna marka (${brand.category})"
+      matchingContact != null -> "Zaufany kontakt (${matchingContact.relationship?.label ?: "Książka adresowa"})"
+      combinedRisk == 0 -> "Dobra reputacja • Brak zarejestrowanych skarg"
+      else -> "Profil neutralny • Umiarkowany poziom zaufania"
+    }
+
     return UnifiedSenderProfile(
       address = clean,
       formattedAddress = knownCaller?.formattedNumber ?: clean,
-      displayName = brand?.displayName ?: knownCaller?.displayName ?: matchingThread?.displayName,
+      displayName = brand?.displayName ?: knownCaller?.displayName ?: matchingContact?.primaryDisplayName ?: matchingThread?.displayName,
+      email = email,
+      phoneNumbers = phoneNumbers,
+      domains = domains,
+      reputationStatus = reputationStatus,
       recognizedBrand = brand,
       callsCount = callCount,
       lastCallTime = lastCallTime,
@@ -1152,7 +1442,7 @@ class DefaultCallerRepository(
         reportsCount = 0,
         suspiciousLinksCount = 0,
         riskScore = 10,
-        riskSeverity = RiskSeverity.LOW,
+        riskSeverity = RiskSeverity.NO_KNOWN_RISK,
         confidence = ConfidenceLevel.WYSOKA,
         organizationCategory = OrganizationCategory.COURIER_LOGISTICS,
         knownPhoneNumbers = listOf("+48 22 577 55 55", "+48 22 577 55 00"),
@@ -1216,7 +1506,7 @@ class DefaultCallerRepository(
         reportsCount = 0,
         suspiciousLinksCount = 0,
         riskScore = 5,
-        riskSeverity = RiskSeverity.LOW,
+        riskSeverity = RiskSeverity.NO_KNOWN_RISK,
         confidence = ConfidenceLevel.WYSOKA,
         organizationCategory = OrganizationCategory.BANKING_FINANCE,
         knownPhoneNumbers = listOf("+48 800 302 302", "+48 81 535 60 60"),

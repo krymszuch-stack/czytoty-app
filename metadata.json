@@ -1,6 +1,6 @@
 {
-  "name": "Bezpieczny Telefon",
-  "description": "Zunifikowane centrum komunikacji 3 w 1: Telefon, Wiadomości SMS oraz ochrona i transparentna reputacja nadawców.",
+  "name": "CzyToTy?",
+  "description": "Telefon • Wiadomości • Ochrona. Wiesz, zanim odbierzesz. Spokój zaczyna się od informacji.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

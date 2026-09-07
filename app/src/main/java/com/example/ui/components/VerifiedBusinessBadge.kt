@@ -105,3 +105,80 @@ fun VerifiedBusinessBadge(
     )
   }
 }
+
+@Composable
+fun SapVerifiedBadge(
+  partner: com.example.sap.SapBusinessPartner,
+  modifier: Modifier = Modifier
+) {
+  var showDialog by remember { mutableStateOf(false) }
+
+  Surface(
+    shape = RoundedCornerShape(8.dp),
+    color = com.example.ui.theme.AppPurpleContainer,
+    border = androidx.compose.foundation.BorderStroke(1.dp, com.example.ui.theme.AppPurpleLight),
+    modifier = modifier
+      .testTag("sap_verified_badge")
+      .clickable { showDialog = true }
+  ) {
+    Row(
+      verticalAlignment = Alignment.CenterVertically,
+      modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+      Icon(
+        imageVector = Icons.Default.Verified,
+        contentDescription = "SAP Verified",
+        tint = com.example.ui.theme.AppPurpleLight,
+        modifier = Modifier.size(16.dp)
+      )
+      Spacer(modifier = Modifier.width(4.dp))
+      Text(
+        text = "Zweryfikowany w systemie SAP",
+        style = MaterialTheme.typography.labelMedium.copy(
+          fontWeight = FontWeight.Bold
+        ),
+        color = com.example.ui.theme.AppPurpleLight
+      )
+    }
+  }
+
+  if (showDialog) {
+    AlertDialog(
+      onDismissRequest = { showDialog = false },
+      icon = {
+        Icon(
+          imageVector = Icons.Default.Verified,
+          contentDescription = null,
+          tint = com.example.ui.theme.AppPurple,
+          modifier = Modifier.size(32.dp)
+        )
+      },
+      title = {
+        Text(
+          text = "${partner.companyName} • SAP Business Partner",
+          style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+        )
+      },
+      text = {
+        Text(
+          text = "Numer zweryfikowany bezpośrednio w kartotece SAP S/4HANA Enterprise.\n\n" +
+              "• ID Partnera: ${partner.businessPartnerId}\n" +
+              (partner.contactPerson?.let { "• Kontakt: $it\n" } ?: "") +
+              (partner.department?.let { "• Dział: $it\n" } ?: "") +
+              "• Instancja: ${partner.sapSystemInstance}\n" +
+              "• Zaufanie SAP: ${partner.trustScore}%\n\n" +
+              "Aplikacja CzyToTy? automatycznie rozpoznaje zweryfikowane podmioty biznesowe.",
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+      },
+      confirmButton = {
+        TextButton(
+          onClick = { showDialog = false }
+        ) {
+          Text("Rozumiem")
+        }
+      }
+    )
+  }
+}

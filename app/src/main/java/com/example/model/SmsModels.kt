@@ -1,6 +1,19 @@
 package com.example.model
 
 /**
+ * Typy wiadomości SMS rozróżniane wizualnie w komunikatorze (Sekcja 44)
+ */
+enum class SmsMessageType(val displayName: String, val tagLabel: String?) {
+  NORMAL("Zwykły SMS", null),
+  OTP("Kod jednorazowy", "Kod SMS"),
+  DELIVERY("Powiadomienie o przesyłce", "Przesyłka"),
+  BANK_FINANCE("Bank i finanse", "Finanse"),
+  SYSTEM("Komunikat operatora", "System"),
+  PROMOTION("Promocja i oferta", "Promocja"),
+  SUSPICIOUS("Podejrzenie oszustwa", "Podejrzane")
+}
+
+/**
  * Model pojedynczej wiadomości SMS
  */
 data class SmsMessage(
@@ -16,11 +29,13 @@ data class SmsMessage(
   val urlAnalysis: UrlSecurityAnalysis? = null,
   val riskScore: Int = 0,
   val riskSeverity: RiskSeverity = RiskSeverity.NO_KNOWN_RISK,
-  val riskReasons: List<String> = emptyList()
+  val riskReasons: List<String> = emptyList(),
+  val messageType: SmsMessageType = SmsMessageType.NORMAL,
+  val deliveryStatus: String = "Dostarczono"
 )
 
 /**
- * Wątek konwersacji SMS
+ * Wątek konwersacji SMS w nowoczesnym messengerze (Sekcje 41, 50, 51)
  */
 data class SmsThread(
   val threadId: String,
@@ -35,7 +50,14 @@ data class SmsThread(
   val highestRiskScore: Int = 0,
   val highestSeverity: RiskSeverity = RiskSeverity.NO_KNOWN_RISK,
   val hasOtp: Boolean = false,
-  val isSpamOrBlocked: Boolean = false
+  val isSpamOrBlocked: Boolean = false,
+  // Nowe właściwości ergonomii messengera
+  val isPinned: Boolean = false,
+  val pinOrder: Int = 0,
+  val isArchived: Boolean = false,
+  val isMuted: Boolean = false,
+  val categoryTag: String? = null,
+  val isBrandVerified: Boolean = false
 )
 
 /**
@@ -62,12 +84,25 @@ data class UrlSecurityAnalysis(
 )
 
 /**
- * Wspólny profil nadawcy (łączący kanał PHONE i SMS)
+ * Stan dialogu weryfikacji linku (Link Safety Modal - Sekcja 48)
+ */
+data class LinkSafetyModalState(
+  val analysis: UrlSecurityAnalysis,
+  val isOfficialBrandDomain: Boolean,
+  val verifiedBrandName: String? = null
+)
+
+/**
+ * Wspólny profil nadawcy (łączący kanał PHONE i SMS - Sekcja 49)
  */
 data class UnifiedSenderProfile(
   val address: String, // numer lub Sender ID
   val formattedAddress: String,
   val displayName: String?,
+  val email: String? = null,
+  val phoneNumbers: List<String> = emptyList(),
+  val domains: List<String> = emptyList(),
+  val reputationStatus: String = "Brak znanych zagrożeń",
   val recognizedBrand: BrandIdentity?,
   val callsCount: Int,
   val lastCallTime: String?,

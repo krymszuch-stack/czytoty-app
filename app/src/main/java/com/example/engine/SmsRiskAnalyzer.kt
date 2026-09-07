@@ -4,6 +4,7 @@ import com.example.model.BrandIdentity
 import com.example.model.ConfidenceLevel
 import com.example.model.OtpCodeInfo
 import com.example.model.RiskSeverity
+import com.example.model.SmsMessageType
 import com.example.model.UrlSecurityAnalysis
 import java.net.URI
 import java.util.regex.Pattern
@@ -14,7 +15,8 @@ data class SmsAnalysisResult(
   val severity: RiskSeverity,
   val reasons: List<String>,
   val otpInfo: OtpCodeInfo?,
-  val urlAnalysis: UrlSecurityAnalysis?
+  val urlAnalysis: UrlSecurityAnalysis?,
+  val messageType: SmsMessageType = SmsMessageType.NORMAL
 )
 
 /**
@@ -136,14 +138,81 @@ object SmsRiskAnalyzer {
       else -> ConfidenceLevel.WYSOKA
     }
 
+    val messageType = determineMessageType(
+      body = body,
+      recognizedBrand = recognizedBrand,
+      otpInfo = otpInfo,
+      urlAnalysis = urlAnalysis,
+      riskScore = finalScore,
+      severity = severity
+    )
+
     return SmsAnalysisResult(
       riskScore = finalScore,
       confidence = confidence,
       severity = severity,
       reasons = if (reasons.isEmpty()) listOf("Brak znanych reguł ryzyka w treści wiadomości") else reasons,
       otpInfo = otpInfo,
-      urlAnalysis = urlAnalysis
+      urlAnalysis = urlAnalysis,
+      messageType = messageType
     )
+  }
+
+  /**
+   * Kategoryzacja semantyczna typu wiadomości (Sekcja 44)
+   */
+  fun determineMessageType(
+    body: String,
+    recognizedBrand: BrandIdentity?,
+    otpInfo: OtpCodeInfo?,
+    urlAnalysis: UrlSecurityAnalysis?,
+    riskScore: Int,
+    severity: RiskSeverity
+  ): SmsMessageType {
+    val lower = body.lowercase()
+
+    // 1. Wysokie ryzyko -> Wiadomość podejrzana
+    if (severity == RiskSeverity.HIGH || riskScore >= 50 || urlAnalysis?.isHighRisk == true) {
+      return SmsMessageType.SUSPICIOUS
+    }
+
+    // 2. Przesyłka / Kurier / Logistyka (priorytet dla powiadomień kurierskich nawet z kodem odbioru)
+    val isDeliveryBrand = recognizedBrand?.brandId in listOf("inpost_pl", "dpd_pl", "dhl_pl", "poczta_polska")
+    val hasDeliveryKeywords = listOf("paczka", "przesyłk", "kurier", "paczkomat", "doręczen", "dostaw", "nadano").any { lower.contains(it) }
+    if (hasDeliveryKeywords || (isDeliveryBrand && otpInfo == null)) {
+      return SmsMessageType.DELIVERY
+    }
+
+    // 3. Kod weryfikacyjny / OTP
+    if (otpInfo != null) {
+      return SmsMessageType.OTP
+    }
+
+    if (isDeliveryBrand) {
+      return SmsMessageType.DELIVERY
+    }
+
+    // 4. Bankowość i finanse
+    val isBankBrand = recognizedBrand?.isFinancialInstitution == true
+    val hasBankKeywords = listOf("bank", "konto", "karta", "przelew", "transakcj", "saldo", "płatnoś", "blik").any { lower.contains(it) }
+    if (isBankBrand || hasBankKeywords) {
+      return SmsMessageType.BANK_FINANCE
+    }
+
+    // 5. Oferty / Promocje / Marketing
+    val hasPromoKeywords = listOf("rabat", "promocj", "okazj", "wyprzedaż", "zniżk", "kod rabatowy", "oferta specjalna", "supercena").any { lower.contains(it) }
+    if (hasPromoKeywords) {
+      return SmsMessageType.PROMOTION
+    }
+
+    // 6. Komunikat systemowy / operatora
+    val hasSystemKeywords = listOf("operator", "doładowan", "pakiet", "taryf", "usługi aktywowane", "konfiguracja").any { lower.contains(it) }
+    if (hasSystemKeywords) {
+      return SmsMessageType.SYSTEM
+    }
+
+    // 7. Zwykły SMS
+    return SmsMessageType.NORMAL
   }
 
   /**
@@ -176,6 +245,7 @@ object SmsRiskAnalyzer {
           code = candidate,
           issuerName = brand?.displayName,
           codeType = when {
+            lower.contains("odbior") || lower.contains("paczkomat") -> "Kod odbioru przesyłki"
             lower.contains("transakcj") || lower.contains("przelew") -> "Autoryzacja transakcji"
             lower.contains("logow") -> "Logowanie do konta"
             else -> "Kod weryfikacyjny"

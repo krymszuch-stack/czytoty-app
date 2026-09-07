@@ -34,21 +34,27 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.example.auth.model.AuthUserProfile
 import com.example.model.UserProfile
 import com.example.ui.theme.AppBlue
 import com.example.ui.theme.AppBorder
@@ -56,6 +62,7 @@ import com.example.ui.theme.AppDarkBackground
 import com.example.ui.theme.AppGreen
 import com.example.ui.theme.AppPurple
 import com.example.ui.theme.AppPurpleContainer
+import com.example.ui.theme.AppPurpleLight
 import com.example.ui.theme.AppPurplePrimary
 import com.example.ui.theme.AppSurfaceVariant
 import com.example.ui.theme.AppTextPrimary
@@ -67,8 +74,14 @@ import com.example.ui.theme.AppTextSecondary
 @Composable
 fun MoreSettingsScreen(
   userProfile: UserProfile,
+  authUser: AuthUserProfile? = null,
+  isGuestMode: Boolean = true,
+  onSignInClick: () -> Unit = {},
+  onSignOutClick: () -> Unit = {},
   onOpenOnboarding: () -> Unit,
   onOpenContacts: () -> Unit = {},
+  onOpenEngineDebug: () -> Unit = {},
+  onOpenSafetyCheck: () -> Unit = {},
   modifier: Modifier = Modifier
 ) {
   val context = LocalContext.current
@@ -81,125 +94,148 @@ fun MoreSettingsScreen(
       .padding(horizontal = 18.dp, vertical = 12.dp)
   ) {
 
-    // 1. TOP BAR (Profil)
-    Row(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(vertical = 6.dp),
-      verticalAlignment = Alignment.CenterVertically
-    ) {
-      Box(
-        modifier = Modifier
-          .size(42.dp)
-          .clip(CircleShape)
-          .background(AppPurpleContainer),
-        contentAlignment = Alignment.Center
-      ) {
-        Icon(
-          imageVector = Icons.Default.Person,
-          contentDescription = null,
-          tint = AppPurple,
-          modifier = Modifier.size(24.dp)
-        )
-      }
-
-      Spacer(modifier = Modifier.width(12.dp))
-
-      Column(modifier = Modifier.weight(1f)) {
-        Text(
-          text = "Profil",
-          fontSize = 22.sp,
-          fontWeight = FontWeight.Bold,
-          color = AppTextPrimary
-        )
-        Text(
-          text = "Konto, uprawnienia i reputacja zgłoszeń",
-          fontSize = 13.sp,
-          color = AppTextSecondary
-        )
-      }
-
-      Box(
-        modifier = Modifier
-          .size(40.dp)
-          .clip(CircleShape)
-          .background(AppPurpleContainer),
-        contentAlignment = Alignment.Center
-      ) {
-        Text(
-          text = "U",
-          fontSize = 16.sp,
-          fontWeight = FontWeight.Bold,
-          color = AppPurple
-        )
-      }
-    }
+    // 1. TOP BAR (CzyToTy? Brand Header)
+    com.example.ui.components.CzyToTyBrandHeader(
+      subtitle = "PROFIL I USTAWIENIA",
+      showLogo = true,
+      logoSize = 44.dp
+    )
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // 2. KARTA UŻYTKOWNIKA
+    // 2. KARTA UŻYTKOWNIKA (Konto Google vs Tryb Gościa)
     Card(
       shape = RoundedCornerShape(22.dp),
       colors = CardDefaults.cardColors(containerColor = AppSurfaceVariant),
       border = BorderStroke(1.dp, AppBorder),
-      modifier = Modifier.fillMaxWidth()
+      modifier = Modifier.fillMaxWidth().testTag("profile_user_card")
     ) {
-      Row(
+      Column(
         modifier = Modifier
           .fillMaxWidth()
-          .padding(18.dp),
-        verticalAlignment = Alignment.CenterVertically
+          .padding(18.dp)
       ) {
-        Box(
-          modifier = Modifier
-            .size(54.dp)
-            .clip(CircleShape)
-            .background(AppPurpleContainer),
-          contentAlignment = Alignment.Center
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically
         ) {
-          Text(
-            text = "U",
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
-            color = AppPurple
-          )
-        }
-
-        Spacer(modifier = Modifier.width(14.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-          Text(
-            text = "Użytkownik Bezpieczny Telefon",
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = AppTextPrimary
-          )
-          Spacer(modifier = Modifier.height(2.dp))
-          Text(
-            text = "adrianowicz11@gmail.com",
-            fontSize = 13.sp,
-            color = AppTextSecondary
-          )
-          Spacer(modifier = Modifier.height(6.dp))
-          Row(verticalAlignment = Alignment.CenterVertically) {
+          // Awatar (Coil AsyncImage z bezpiecznym fallbackiem na inicjały)
+          if (!authUser?.avatarUrl.isNullOrBlank()) {
+            AsyncImage(
+              model = authUser!!.avatarUrl,
+              contentDescription = "Awatar użytkownika",
+              modifier = Modifier
+                .size(54.dp)
+                .clip(CircleShape)
+                .background(AppPurpleContainer),
+              contentScale = ContentScale.Crop
+            )
+          } else {
             Box(
               modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF281E48))
-                .padding(horizontal = 8.dp, vertical = 3.dp)
+                .size(54.dp)
+                .clip(CircleShape)
+                .background(AppPurpleContainer),
+              contentAlignment = Alignment.Center
             ) {
               Text(
-                text = "Zaufany Obywatel",
-                fontSize = 11.sp,
+                text = if (authUser != null && !isGuestMode) authUser.initials else "G",
+                fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFFC8BAFF)
+                color = AppPurple
               )
             }
+          }
+
+          Spacer(modifier = Modifier.width(14.dp))
+
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = if (authUser != null && !isGuestMode) authUser.displayName else "Konto gościa (Lokalne)",
+              fontSize = 16.sp,
+              fontWeight = FontWeight.Bold,
+              color = AppTextPrimary
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+              text = if (authUser != null && !isGuestMode) (authUser.email ?: "Konto Google") else "Bezpieczny tryb offline",
+              fontSize = 13.sp,
+              color = AppTextSecondary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Box(
+                modifier = Modifier
+                  .clip(RoundedCornerShape(8.dp))
+                  .background(if (authUser != null && !isGuestMode) Color(0xFF281E48) else Color(0xFF1E2638))
+                  .padding(horizontal = 8.dp, vertical = 3.dp)
+              ) {
+                Text(
+                  text = if (authUser != null && !isGuestMode) "Konto Google" else "Tryb gościa",
+                  fontSize = 11.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = if (authUser != null && !isGuestMode) Color(0xFFC8BAFF) else Color(0xFF90B4CE)
+                )
+              }
+              Spacer(modifier = Modifier.width(8.dp))
+              Text(
+                text = "${userProfile.credibilityScore}% wiarygodności",
+                fontSize = 12.sp,
+                color = AppGreen
+              )
+            }
+          }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Akcja logowania / wylogowania
+        if (authUser != null && !isGuestMode) {
+          OutlinedButton(
+            onClick = onSignOutClick,
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Color(0xFF3B3355)),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD6C8FF)),
+            modifier = Modifier
+              .fillMaxWidth()
+              .testTag("profile_logout_button")
+          ) {
+            Icon(
+              imageVector = Icons.Default.Lock,
+              contentDescription = null,
+              modifier = Modifier.size(16.dp),
+              tint = Color(0xFFD6C8FF)
+            )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-              text = "98% trafności",
-              fontSize = 12.sp,
-              color = AppGreen
+              text = "Wyloguj się z konta Google",
+              fontSize = 13.5.sp,
+              fontWeight = FontWeight.SemiBold
+            )
+          }
+        } else {
+          Button(
+            onClick = onSignInClick,
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(
+              containerColor = AppPurplePrimary,
+              contentColor = Color.White
+            ),
+            modifier = Modifier
+              .fillMaxWidth()
+              .testTag("profile_login_button")
+          ) {
+            Icon(
+              imageVector = Icons.Default.Person,
+              contentDescription = null,
+              modifier = Modifier.size(16.dp),
+              tint = Color.White
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+              text = "Zaloguj przez Google",
+              fontSize = 13.5.sp,
+              fontWeight = FontWeight.SemiBold
             )
           }
         }
@@ -388,10 +424,82 @@ fun MoreSettingsScreen(
           subtitle = "Dowiedz się, jak wyliczamy wskaźnik ryzyka i pewność",
           onClick = onOpenOnboarding
         )
+
+        HorizontalDivider(thickness = 1.dp, color = Color(0xFF242136), modifier = Modifier.padding(horizontal = 16.dp))
+
+        SystemRoleItem(
+          icon = Icons.Default.CheckCircle,
+          iconTint = AppPurpleLight,
+          iconBg = AppPurpleContainer,
+          title = "Integracja z systemem SAP",
+          subtitle = "Baza kontrahentów SAP S/4HANA aktywna w trybie offline cache (<10ms)",
+          onClick = {}
+        )
+
+        HorizontalDivider(thickness = 1.dp, color = Color(0xFF242136), modifier = Modifier.padding(horizontal = 16.dp))
+
+        SystemRoleItem(
+          icon = Icons.Default.Security,
+          iconTint = Color(0xFFC49BFF),
+          iconBg = Color(0xFF2B1A4A),
+          title = "Diagnostyka Silnika v1.0.0 (Inspector)",
+          subtitle = "Podgląd na żywo: Risk, Identity, Reputation, Confidence, Wagi i Anti-Abuse",
+          onClick = onOpenEngineDebug
+        )
+
+        HorizontalDivider(thickness = 1.dp, color = Color(0xFF242136), modifier = Modifier.padding(horizontal = 16.dp))
+
+        SystemRoleItem(
+          icon = Icons.Default.Security,
+          iconTint = AppGreen,
+          iconBg = Color(0xFF15221B),
+          title = "Tryb Pomocy (Safety Check)",
+          subtitle = "Lokalna detekcja sytuacji stresu i alerty zaufanych kontaktów (100% Opt-in)",
+          onClick = onOpenSafetyCheck
+        )
       }
     }
 
-    Spacer(modifier = Modifier.height(24.dp))
+    Spacer(modifier = Modifier.height(28.dp))
+
+    // 5. STOPKA BRANDU CzyToTy?
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(bottom = 24.dp),
+      horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+      com.example.ui.components.CzyToTyLogo(
+        size = 42.dp,
+        variant = com.example.ui.components.LogoVariant.DARK
+      )
+      Spacer(modifier = Modifier.height(8.dp))
+      Text(
+        text = "CzyToTy? v1.0",
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Bold,
+        color = AppTextPrimary
+      )
+      Text(
+        text = "Telefon • Wiadomości • Ochrona",
+        fontSize = 11.5.sp,
+        color = AppTextSecondary
+      )
+      Spacer(modifier = Modifier.height(2.dp))
+      Text(
+        text = "WIESZ, ZANIM ODBIERZESZ",
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 1.sp,
+        color = AppPurpleLight
+      )
+      Spacer(modifier = Modifier.height(2.dp))
+      Text(
+        text = "Spokój zaczyna się od informacji.",
+        fontSize = 10.sp,
+        color = com.example.ui.theme.AppTextMuted
+      )
+    }
   }
 }
 

@@ -12,18 +12,30 @@ import com.example.model.CallerInfo
 import com.example.model.CommunityReputation
 import com.example.model.ContactSortMode
 import com.example.model.InteractionSource
+import com.example.model.LinkSafetyModalState
 import com.example.model.PostCallEvaluation
 import com.example.model.ProtectionSettings
 import com.example.model.QuickRating
+import com.example.model.RiskSeverity
 import com.example.model.SmsMessage
 import com.example.model.SmsThread
 import com.example.model.SubCategory
 import com.example.model.UnifiedContact
 import com.example.model.UnifiedSenderProfile
+import com.example.model.UrlSecurityAnalysis
 import com.example.model.UserProfile
 import com.example.model.UserRatingSubmission
 import com.example.service.CallScreeningBridge
 import com.example.service.SmsBridge
+import com.example.incall.dtmf.DtmfController
+import com.example.incall.model.AudioRoute
+import com.example.incall.model.CallScreenState
+import com.example.incall.model.InCallContextInfo
+import com.example.incall.model.InCallUiState
+import com.example.incall.model.NetworkStatusInfo
+import com.example.incall.privacy.InCallSmsPrivacyFilter
+import com.example.incall.timer.CallTimerManager
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,6 +49,7 @@ data class CallerUiState(
   val selectedThreadId: String? = null,
   val activeThreadMessages: List<SmsMessage> = emptyList(),
   val selectedSenderProfile: UnifiedSenderProfile? = null,
+  val activeLinkModal: LinkSafetyModalState? = null,
   val searchQuery: String = "+48 732 123 456",
   val searchResult: CallerInfo? = null,
   val protectionSettings: ProtectionSettings = ProtectionSettings(),
@@ -57,7 +70,10 @@ data class CallerUiState(
   val contactSortMode: ContactSortMode = ContactSortMode.MANUAL,
   val selectedUnifiedContact: UnifiedContact? = null,
   val isAddContactDialogOpen: Boolean = false,
-  val isContactsScreenOpen: Boolean = false
+  val isContactsScreenOpen: Boolean = false,
+  val isEngineDebugVisible: Boolean = false,
+  // Active In-Call State (Sekcje 76–96)
+  val activeInCallState: InCallUiState? = null
 )
 
 class CallerViewModel(
@@ -214,7 +230,50 @@ class CallerViewModel(
       _uiState.value.smsThreads.firstOrNull { it.senderAddress == recipient }?.threadId ?: "thread-${recipient.hashCode()}"
     }
     openThread(threadId)
-    _uiState.update { it.copy(currentTabIndex = 2) } // Przełącz na zakładkę Wiadomości
+    _uiState.update { it.copy(currentTabIndex = 1) } // Zakładka Wiadomości (indeks 1)
+  }
+
+  fun togglePinThread(threadId: String) {
+    repository.togglePinThread(threadId)
+  }
+
+  fun reorderPinnedThreads(fromIndex: Int, toIndex: Int) {
+    repository.reorderPinnedThreads(fromIndex, toIndex)
+  }
+
+  fun toggleMuteThread(threadId: String) {
+    repository.toggleMuteThread(threadId)
+  }
+
+  fun toggleArchiveThread(threadId: String) {
+    repository.toggleArchiveThread(threadId)
+  }
+
+  fun deleteThreadLocally(threadId: String) {
+    repository.deleteThreadLocally(threadId)
+    if (_uiState.value.selectedThreadId == threadId) {
+      closeThread()
+    }
+  }
+
+  fun markThreadAsSpam(threadId: String) {
+    repository.markThreadAsSpam(threadId)
+  }
+
+  fun openLinkSafetyModal(analysis: UrlSecurityAnalysis, isOfficial: Boolean, brandName: String? = null) {
+    _uiState.update {
+      it.copy(
+        activeLinkModal = LinkSafetyModalState(
+          analysis = analysis,
+          isOfficialBrandDomain = isOfficial,
+          verifiedBrandName = brandName
+        )
+      )
+    }
+  }
+
+  fun dismissLinkSafetyModal() {
+    _uiState.update { it.copy(activeLinkModal = null) }
   }
 
   // =================== WSPÓLNY PROFIL NADAWCY ===================
@@ -353,6 +412,206 @@ class CallerViewModel(
     }
   }
 
+  // =================== ACTIVE IN-CALL STATE & ACTIONS (SEKCJE 76–96) ===================
+
+  private var inCallTimerJob: Job? = null
+  private var activeCallTimerManager: CallTimerManager? = null
+  private var activeDtmfController: DtmfController? = null
+
+  fun answerIncomingCall() {
+    val caller = _uiState.value.incomingCallPreview ?: return
+    _uiState.update { it.copy(incomingCallPreview = null) }
+
+    // Pobierz dane kontekstowe i historię SMS
+    val matchingThread = _uiState.value.smsThreads.firstOrNull {
+      it.senderAddress == caller.phoneNumber || it.displayName.equals(caller.displayName, ignoreCase = true)
+    }
+    val rawLastSms = matchingThread?.lastMessageSnippet
+    val smsTimestamp = matchingThread?.lastMessageTimestamp
+
+    // Filtr prywatności podglądu SMS (Sekcja 85)
+    val filteredSms = InCallSmsPrivacyFilter.filterSnippet(
+      rawBody = rawLastSms,
+      timestamp = smsTimestamp,
+      isEnabled = _uiState.value.protectionSettings.showSmsPreviewInCall
+    )
+
+    val matchingContact = repository.getContactForAddress(caller.phoneNumber)
+
+    val contextInfo = InCallContextInfo(
+      lastSmsSnippet = filteredSms?.displayText,
+      lastSmsTimestamp = filteredSms?.timestamp,
+      isSmsSensitive = filteredSms?.isSensitive == true,
+      lastCallTimestamp = matchingContact?.lastCallTimestamp,
+      organizationName = matchingContact?.primaryDisplayName ?: caller.displayName,
+      officialDomains = matchingContact?.officialDomains ?: emptyList(),
+      reputationNote = matchingContact?.reputationNote,
+      riskScore = caller.riskScore,
+      confidence = caller.confidence
+    )
+
+    // Inicjalizacja timera i kontrolera DTMF
+    activeCallTimerManager = CallTimerManager(viewModelScope)
+    activeDtmfController = DtmfController()
+
+    val initialCallState = InCallUiState(
+      callState = CallScreenState.ACTIVE,
+      caller = caller,
+      activeDurationSeconds = 0L,
+      formattedDuration = "00:00",
+      audioRoute = AudioRoute.EARPIECE,
+      isMuted = false,
+      isKeypadOpen = false,
+      dtmfSequence = "",
+      isExpandedContext = false,
+      isProximityNear = false,
+      isTouchLocked = false,
+      networkStatus = NetworkStatusInfo(networkType = "5G", signalBars = 4),
+      contextInfo = contextInfo,
+      dynamicRiskWarning = if (caller.severity == RiskSeverity.HIGH) "Wykryto sygnały podwyższonego ryzyka" else null
+    )
+
+    _uiState.update { it.copy(activeInCallState = initialCallState) }
+    activeCallTimerManager?.start()
+
+    inCallTimerJob?.cancel()
+    inCallTimerJob = viewModelScope.launch {
+      activeCallTimerManager?.durationSeconds?.collect { seconds ->
+        _uiState.update { state ->
+          val current = state.activeInCallState ?: return@update state
+          state.copy(
+            activeInCallState = current.copy(
+              activeDurationSeconds = seconds,
+              formattedDuration = CallTimerManager.formatDuration(seconds)
+            )
+          )
+        }
+      }
+    }
+  }
+
+  fun hangupActiveCall() {
+    val active = _uiState.value.activeInCallState ?: return
+    val finalDuration = activeCallTimerManager?.stop() ?: active.activeDurationSeconds
+    inCallTimerJob?.cancel()
+    activeDtmfController?.release()
+    activeDtmfController = null
+    activeCallTimerManager = null
+
+    // Zapisz interakcję
+    val interaction = CallInteraction(
+      id = "interaction-${System.currentTimeMillis()}",
+      number = active.caller.phoneNumber,
+      timestampEpoch = System.currentTimeMillis(),
+      direction = CallDirection.INCOMING,
+      answered = true,
+      durationSeconds = finalDuration.toInt(),
+      source = if (_uiState.value.isIncomingCallSimulated) InteractionSource.DEMO_SIMULATION else InteractionSource.CALL_SCREENING
+    )
+    repository.recordCallInteraction(interaction)
+
+    _uiState.update {
+      it.copy(
+        activeInCallState = null,
+        postCallEvaluation = PostCallEvaluation(
+          callerInfo = active.caller,
+          interaction = interaction
+        )
+      )
+    }
+  }
+
+  fun toggleInCallMute() {
+    _uiState.update { state ->
+      val current = state.activeInCallState ?: return@update state
+      state.copy(activeInCallState = current.copy(isMuted = !current.isMuted))
+    }
+  }
+
+  fun toggleInCallSpeaker() {
+    _uiState.update { state ->
+      val current = state.activeInCallState ?: return@update state
+      val newRoute = if (current.audioRoute == AudioRoute.SPEAKER) AudioRoute.EARPIECE else AudioRoute.SPEAKER
+      // Gdy aktywny jest głośnik, odblokowujemy touch lock (Sekcja 93)
+      val newTouchLock = if (newRoute == AudioRoute.SPEAKER) false else current.isProximityNear
+      state.copy(
+        activeInCallState = current.copy(
+          audioRoute = newRoute,
+          isTouchLocked = newTouchLock
+        )
+      )
+    }
+  }
+
+  fun toggleInCallHold() {
+    _uiState.update { state ->
+      val current = state.activeInCallState ?: return@update state
+      val isNowHeld = current.callState == CallScreenState.ACTIVE
+      if (isNowHeld) {
+        activeCallTimerManager?.pause()
+      } else {
+        activeCallTimerManager?.resume()
+      }
+      state.copy(
+        activeInCallState = current.copy(
+          callState = if (isNowHeld) CallScreenState.HELD else CallScreenState.ACTIVE
+        )
+      )
+    }
+  }
+
+  fun toggleInCallKeypad(open: Boolean) {
+    _uiState.update { state ->
+      val current = state.activeInCallState ?: return@update state
+      state.copy(activeInCallState = current.copy(isKeypadOpen = open))
+    }
+  }
+
+  fun sendInCallDtmfDigit(digit: Char) {
+    val updatedSeq = activeDtmfController?.sendDigit(digit) ?: ""
+    _uiState.update { state ->
+      val current = state.activeInCallState ?: return@update state
+      state.copy(activeInCallState = current.copy(dtmfSequence = updatedSeq))
+    }
+  }
+
+  fun clearInCallDtmf() {
+    activeDtmfController?.clearSequence()
+    _uiState.update { state ->
+      val current = state.activeInCallState ?: return@update state
+      state.copy(activeInCallState = current.copy(dtmfSequence = ""))
+    }
+  }
+
+  fun toggleInCallContextExpansion(expanded: Boolean) {
+    _uiState.update { state ->
+      val current = state.activeInCallState ?: return@update state
+      state.copy(activeInCallState = current.copy(isExpandedContext = expanded))
+    }
+  }
+
+  fun onProximitySensorEvent(isNear: Boolean) {
+    _uiState.update { state ->
+      val current = state.activeInCallState ?: return@update state
+      // Jeśli głośnik lub bluetooth jest aktywny: nie blokujemy agresywnie (Sekcje 93 i 94)
+      val bypass = current.audioRoute == AudioRoute.SPEAKER || current.audioRoute == AudioRoute.BLUETOOTH
+      val shouldLock = isNear && !bypass
+      state.copy(
+        activeInCallState = current.copy(
+          isProximityNear = isNear,
+          isTouchLocked = shouldLock
+        )
+      )
+    }
+  }
+
+  fun setInCallDynamicRiskWarning(warning: String?) {
+    _uiState.update { state ->
+      val current = state.activeInCallState ?: return@update state
+      state.copy(activeInCallState = current.copy(dynamicRiskWarning = warning))
+    }
+  }
+
   // Crowdsourcing - Ocena po połączeniu (SEKCJE 19–31)
   fun submitQuickRating(phoneNumber: String, rating: QuickRating, subCategory: SubCategory?) {
     val hasInteraction = _uiState.value.recentCalls.any { it.caller.phoneNumber == phoneNumber } ||
@@ -482,6 +741,14 @@ class CallerViewModel(
 
   fun dismissSmartSuggestion(contactId: String) {
     repository.dismissSmartSuggestion(contactId)
+  }
+
+  fun openEngineDebug() {
+    _uiState.update { it.copy(isEngineDebugVisible = true) }
+  }
+
+  fun closeEngineDebug() {
+    _uiState.update { it.copy(isEngineDebugVisible = false) }
   }
 }
 

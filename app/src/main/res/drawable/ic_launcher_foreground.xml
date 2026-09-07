@@ -1,23 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Centered within 66dp safe zone (canvas 108dp, center 54, 54) -->
-    <!-- Outer Shield Contour -->
+    <!-- Bezpieczna strefa launchera (okrąg 66dp, środek 54, 54) -->
+    <!-- Górny dymek czatu (gradient fioletowo-lawendowy) tworzący górny łuk znaku zapytania -->
     <path
-        android:fillColor="#1E88E5"
-        android:pathData="M54,26 C64,26 73,29.5 76,33 C76,51 66.5,67 54,73 C41.5,67 32,51 32,33 C35,29.5 44,26 54,26 Z" />
-    <!-- Inner Shield Depth -->
-    <path
-        android:fillColor="#1565C0"
-        android:pathData="M54,30 C62,30 69.5,32.8 72,35.5 C72,50 64,63 54,68.5 C44,63 36,50 36,35.5 C38.5,32.8 46,30 54,30 Z" />
-    <!-- Phone Receiver & Checkmark Symbol -->
+        android:pathData="M38,32 C45,26 62,26 71,34 C79,41 79,52 72,60 C68,65 61,68 56,71 C53,73 51,77 51,80 L45,80 C45,74 48,69 53,66 C57,63 62,61 65,57 C69,52 69,45 65,40 C60,35 48,35 38,40 C34,43 31,48 29,54 L23,51 C25,43 29,35 38,32 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="23"
+                android:startY="26"
+                android:endX="79"
+                android:endY="80"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF7B4DFF"/>
+                <item android:offset="0.6" android:color="#FFA875FF"/>
+                <item android:offset="1.0" android:color="#FFC49BFF"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 3 kropki (...) wewnątrz dymka - Białe -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M50,56 L43,49 L45.8,46.2 L50,50.4 L60.2,40.2 L63,43 L50,56 Z" />
+        android:pathData="M43,45m-2.8,0a2.8,2.8 0 1 1,5.6 0a2.8,2.8 0 1 1,-5.6 0" />
     <path
-        android:fillColor="#64B5F6"
-        android:pathData="M54,77 C54,77 69,70.5 78,52 C81,46 81,36 81,36 L54,23 L27,36 C27,36 27,46 30,52 C39,70.5 54,77 54,77 Z M54,73 C41.5,67 32,51 32,33 C35,29.5 44,26 54,26 C64,26 73,29.5 76,33 C76,51 66.5,67 54,73 Z" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M52,45m-2.8,0a2.8,2.8 0 1 1,5.6 0a2.8,2.8 0 1 1,-5.6 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M61,45m-2.8,0a2.8,2.8 0 1 1,5.6 0a2.8,2.8 0 1 1,-5.6 0" />
+
+    <!-- Dolna część: Słuchawka telefonu (Biała, pochylona ku kropce) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M73,49 C77,54 78,61 74,69 C69,78 60,83 53,86 C51,87 49,85 50,83 C52,78 55,72 59,66 C63,60 67,55 70,49 C71,47 72,46 73,49 Z" />
+
+    <!-- Kropka znaku zapytania na dole (Biała) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,93m-4.2,0a4.2,4.2 0 1 1,8.4 0a4.2,4.2 0 1 1,-8.4 0" />
 </vector>
