@@ -15,3 +15,6 @@ captures/
 .env
 *.keystore
 !debug.keystore
+supabase/.temp/
+artifacts/*.png
+artifacts/*.apk

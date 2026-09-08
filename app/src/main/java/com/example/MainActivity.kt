@@ -1,609 +1,416 @@
 package com.example
 
+import android.app.role.RoleManager
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
+import androidx.activity.SystemBarStyle
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChatBubble
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Shield
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.activity.viewModels
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.collectAsState
-import com.example.auth.viewmodel.AuthViewModel
-import com.example.model.CallRecord
-import com.example.model.CallType
-import com.example.safetycheck.manager.SafetyCheckManager
-import com.example.safetycheck.repository.SafetyCheckRepository
-import com.example.ui.components.LinkSafetyDialog
-import com.example.ui.components.PostCallRatingCard
-import com.example.ui.components.ReportBottomSheet
-import com.example.ui.components.SafetyCheckTriggerDialog
-import com.example.ui.screens.AuthScreen
-import com.example.ui.screens.ContactsScreen
-import com.example.ui.screens.HomeScreen
-import com.example.ui.screens.IncomingCallScreen
-import com.example.ui.screens.MoreSettingsScreen
-import com.example.ui.screens.SafetyCheckSettingsScreen
-import com.example.ui.screens.NumberDetailsScreen
-import com.example.ui.screens.OnboardingScreen
-import com.example.ui.screens.ProtectionScreen
-import com.example.ui.screens.RecentCallsScreen
-import com.example.ui.screens.SenderProfileScreen
-import com.example.ui.screens.SmsConversationDetailScreen
-import com.example.ui.screens.SmsConversationsScreen
-import com.example.ui.screens.EngineDebugScreen
-import com.example.ui.screens.UnifiedContactDetailScreen
-import com.example.ui.screens.VerifyNumberScreen
-import com.example.ui.theme.AppBorder
-import com.example.ui.theme.AppDarkBackground
-import com.example.ui.theme.AppPurple
+import com.example.data.*
+import com.example.ui.tabs.DialerTabScrollable
+import com.example.ui.tabs.SmsTabScrollable
 import com.example.ui.theme.MyApplicationTheme
-import com.example.viewmodel.CallerViewModel
-import com.example.viewmodel.SimulationCallType
+import java.text.DateFormat
+import java.util.Date
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
-  private val authViewModel: AuthViewModel by viewModels()
-
-  override fun onCreate(savedInstanceState: Bundle?) {
-    super.onCreate(savedInstanceState)
-    enableEdgeToEdge()
-
-    // Obsługa powrotu z przeglądarki (PKCE deeplink) przy zimnym starcie
-    intent?.let { authViewModel.handleDeeplink(it) }
-
-    setContent {
-      MyApplicationTheme {
-        MainAppContent(authViewModel = authViewModel)
-      }
+    private val model: PrototypeViewModel by viewModels()
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
+        handleShared(intent)
+        setContent { MyApplicationTheme(darkTheme = true) { PrototypeApp(model) } }
     }
-  }
-
-  override fun onNewIntent(intent: Intent) {
-    super.onNewIntent(intent)
-    setIntent(intent)
-    // Obsługa powrotu z Custom Tabs (czytoty://auth) w trybie singleTop
-    authViewModel.handleDeeplink(intent)
-  }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleShared(intent)
+    }
+    private fun handleShared(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_DIAL) model.acceptDial(intent.data?.schemeSpecificPart.orEmpty())
+        if (intent?.getBooleanExtra("open_sms", false) == true) model.requestSms()
+        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain")
+            model.acceptSharedText(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
+    }
 }
 
-sealed class NavigationTab(
-  val title: String,
-  val selectedIcon: ImageVector? = null,
-  val unselectedIcon: ImageVector? = null,
-  val testTag: String,
-  val drawableRes: Int? = null
-) {
-  object Ostatnie : NavigationTab("Ostatnie", Icons.Default.Home, Icons.Outlined.Home, "tab_recent", R.drawable.ic_phone_lookup)
-  object Wiadomosci : NavigationTab("Wiadomości", Icons.Default.ChatBubble, Icons.Outlined.ChatBubbleOutline, "tab_messages", R.drawable.ic_messages_sms)
-  object Sprawdz : NavigationTab("Sprawdź", Icons.Default.Search, Icons.Outlined.Search, "tab_check")
-  object Ochrona : NavigationTab("Ochrona", Icons.Default.Shield, Icons.Outlined.Shield, "tab_protection", R.drawable.ic_protection_shield)
-  object Profil : NavigationTab("Profil", Icons.Default.Person, Icons.Outlined.Person, "tab_profile", R.drawable.ic_everyone_people)
+private fun timestamp(value: Long): String = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(value))
+private val Amber = Color(0xFFFFD089)
+
+@Composable
+private fun PrototypeApp(model: PrototypeViewModel) {
+    val tabStates = rememberSaveableStateHolder()
+    val state by model.state.collectAsStateWithLifecycle()
+    val phoneSession by com.example.calling.CallSession.state.collectAsStateWithLifecycle()
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var message by rememberSaveable { mutableStateOf("") }
+    var phoneInput by rememberSaveable { mutableStateOf("") }
+    var smsPrefill by rememberSaveable { mutableStateOf("") }
+    var dialPrefill by rememberSaveable { mutableStateOf<String?>(null) }
+    var roleGranted by remember { mutableStateOf(false) }
+    var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val currentTime = maxOf(clock, System.currentTimeMillis())
+    val context = LocalContext.current
+    val owner = LocalLifecycleOwner.current
+    val snackbar = remember { SnackbarHostState() }
+    fun updateRole() {
+        roleGranted = Build.VERSION.SDK_INT >= 29 &&
+            context.getSystemService(RoleManager::class.java)?.isRoleHeld(RoleManager.ROLE_CALL_SCREENING) == true
+    }
+    val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { updateRole() }
+    DisposableEffect(owner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) { updateRole(); model.reloadLocal() }
+        }
+        owner.lifecycle.addObserver(observer)
+        updateRole()
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(owner) {
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                clock = System.currentTimeMillis()
+                model.refreshIfNeeded()
+                delay(30_000)
+            }
+        }
+    }
+    LaunchedEffect(state.notice) {
+        state.notice?.let { snackbar.showSnackbar(it); model.dismissNotice() }
+    }
+    LaunchedEffect(state.sharedText) {
+        if (state.sharedText.isNotEmpty()) {
+            message = state.sharedText; tab = 2; model.consumeSharedText()
+        }
+    }
+    val labels = listOf("Telefon", "SMS", "Sprawdź", "Numery", "Ochrona", "Konto")
+    LaunchedEffect(state.dialNumber) { state.dialNumber?.let { dialPrefill = it; tab = 0; model.consumeDial() } }
+    LaunchedEffect(state.openSms) { if (state.openSms) { tab = 1; model.consumeSmsRequest() } }
+    val icons = listOf(R.drawable.ic_phone_lookup, R.drawable.ic_messages_sms, R.drawable.ic_search, R.drawable.ic_account, R.drawable.ic_protection_shield, R.drawable.ic_account)
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
+        bottomBar = {
+            NavigationBar {
+                listOf(0, 1, 2, 4).forEach { index ->
+                    val label = labels[index]
+                    NavigationBarItem(selected = tab == index, onClick = { tab = index },
+                        icon = { Icon(painterResource(icons[index]), null, modifier = Modifier.size(24.dp)) }, label = { Text(label, maxLines = 1, style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.testTag("tab_" + index))
+                }
+            }
+        }
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 20.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Image(painterResource(R.drawable.ic_brand_mark), "Logo CzyToTy?", modifier = Modifier.size(28.dp))
+                Text("CzyToTy?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                IconButton(onClick = { tab = 3 }, modifier = Modifier.testTag("tab_3")) { Icon(Icons.Outlined.Contacts, "Numery i notatki") }
+                IconButton(onClick = { tab = 5 }, modifier = Modifier.testTag("tab_5")) { Icon(painterResource(R.drawable.ic_account), "Konto", modifier = Modifier.size(24.dp)) }
+            }
+            if (phoneSession.calls.any { it.live }) FilledTonalButton(onClick = {
+                context.startActivity(Intent(context, com.example.calling.InCallActivity::class.java))
+            }, modifier = Modifier.fillMaxWidth().testTag("return_to_call")) {
+                Icon(Icons.Outlined.Call, null); Spacer(Modifier.width(8.dp)); Text("Wróć do połączenia")
+            }
+            tabStates.SaveableStateProvider(tab) {
+            when (tab) {
+                0 -> {
+                    DialerTabScrollable(
+                        model = model,
+                        blockedLookup = { phone -> state.notes.any { it.phone == phone && it.blocked } },
+                        notesCount = state.notes.size,
+                        onEditNumber = { phoneInput = it; tab = 3 },
+                        onSmsNumber = { smsPrefill = it; tab = 1 },
+                        initialNumber = dialPrefill,
+                        onNumberConsumed = { dialPrefill = null },
+                        amber = Amber
+                    )
+                }
+                1 -> {
+                    SmsTabScrollable(
+                        snapshot = state.snapshot,
+                        initialAddress = smsPrefill,
+                        onAddressConsumed = { smsPrefill = "" },
+                        onCheckText = { message = it.take(20_000); model.clearAnalysis(); tab = 2 },
+                        amber = Amber
+                    )
+                }
+                2 -> {
+                    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Wiadomość lub link", style = MaterialTheme.typography.headlineSmall)
+                    Text("Wklej treść SMS-a albo udostępnij ją do CzyToTy? z komunikatora. Analiza odbywa się na tym urządzeniu.")
+                    SourceCard(state, currentTime, model::refreshCert)
+                    OutlinedTextField(value = message, onValueChange = { message = it.take(20_000); model.clearAnalysis() },
+                        label = { Text("Treść wiadomości lub adres strony") }, minLines = 4, maxLines = 8,
+                        modifier = Modifier.fillMaxWidth().testTag("message_input"))
+                    Button(onClick = { model.analyze(message) }, enabled = message.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth().testTag("analyze")) {
+                        Icon(Icons.Outlined.Search, null); Spacer(Modifier.width(8.dp)); Text("Sprawdź treść i domeny")
+                    }
+                    state.analysis?.let {
+                        AnalysisCard(it, it.snapshotTime?.let { time -> currentTime - time in 0..CERT_MAX_AGE_MS } == true)
+                    }
+                    if (message.isNotBlank()) {
+                        TextButton(onClick = {
+                            openIntent(context, Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:8080")).putExtra("sms_body", message))
+                        }) { Text("Przekaż podejrzany SMS do CERT (8080)") }
+                        Text("Otworzy się Twoja aplikacja SMS. Samodzielnie zatwierdzasz wysyłkę.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    InfoCard("Granice sprawdzania", "Lista CERT dotyczy domen phishingowych. Nie sprawdza tożsamości rozmówcy. Nowa niebezpieczna strona może jeszcze nie figurować na liście; przekierowania i skrócone linki nie są rozwijane.")
+                    }
+                }
+                3 -> {
+                    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Twoje numery", style = MaterialTheme.typography.headlineSmall)
+                    Text("Sprawdź format, dodaj własną notatkę lub blokadę. Numery bez prefiksu kraju traktujemy jako polskie.")
+                    OutlinedTextField(phoneInput, { phoneInput = it.take(40) }, label = { Text("Numer telefonu") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth().testTag("phone_input"))
+                    val parsed = remember(phoneInput) { PhoneNumbers.parse(phoneInput) }
+                    if (phoneInput.isNotBlank() && parsed == null) Text("Wpisz pełny, prawidłowy numer, np. z prefiksem +48.", color = Amber)
+                    if (parsed != null) {
+                        PhoneEditor(parsed, state, model, roleGranted)
+                    }
+                    Text("Zapisane lokalnie · ${state.notes.size}", style = MaterialTheme.typography.titleMedium)
+                    if (state.notes.isEmpty()) Text("Nie masz jeszcze zapisanych numerów. Lista zaczyna się pusta.")
+                    state.notes.forEach { note ->
+                        OutlinedCard(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(note.label.ifBlank { note.phone }, fontWeight = FontWeight.Bold)
+                                if (note.label.isNotBlank()) Text(note.phone)
+                                Text(if (note.blocked) "Na Twojej liście blokad" else "Twoja notatka", color = if (note.blocked) Amber else MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (note.note.isNotBlank()) Text(note.note)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(onClick = { phoneInput = note.phone }) { Text("Edytuj") }
+                                    TextButton(onClick = { model.removeLocal(note.phone) }) { Text("Usuń lokalnie") }
+                                }
+                            }
+                        }
+                    }
+                    }
+                }
+                4 -> {
+                    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Ochrona połączeń", style = MaterialTheme.typography.headlineSmall)
+                    InfoCard(
+                        if (roleGranted && state.protectionEnabled) "Blokowanie Twojej listy jest włączone" else "Blokowanie jest nieaktywne",
+                        if (roleGranted) "Aplikacja ma systemową rolę filtrowania połączeń. Blokuje wyłącznie numery, które samodzielnie dodasz do listy."
+                        else "Aby blokować zapisane numery, nadaj CzyToTy? rolę identyfikowania i filtrowania połączeń w Androidzie."
+                    )
+                    if (!roleGranted) Button(onClick = {
+                        if (Build.VERSION.SDK_INT >= 29) {
+                            val manager = context.getSystemService(RoleManager::class.java)
+                            if (manager?.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) == true)
+                                roleLauncher.launch(manager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING))
+                            else Toast.makeText(context, "Ten telefon nie udostępnia roli filtrowania połączeń.", Toast.LENGTH_LONG).show()
+                        } else Toast.makeText(context, "Konfiguracja filtrowania w prototypie wymaga Androida 10 lub nowszego.", Toast.LENGTH_LONG).show()
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Włącz filtrowanie w Androidzie") }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Blokuj numery z mojej listy", Modifier.weight(1f))
+                        Switch(checked = state.protectionEnabled, onCheckedChange = model::setProtection)
+                    }
+                    Text("Zapisane blokady: ${state.notes.count { it.blocked }}")
+                    Text("Rejestr filtrowania · ${state.events.size}", style = MaterialTheme.typography.titleMedium)
+                    Text("Zdarzenia odebrane przez tę aplikację, maksymalnie 200. To nie jest pełna historia rozmów. Android może pomijać numery z kontaktów i połączenia o ograniczonej prezentacji numeru.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = { model.reloadLocal() }) { Text("Odśwież rejestr") }
+                    if (state.events.isEmpty()) Text("Nie zarejestrowano jeszcze żadnych połączeń.")
+                    state.events.take(50).forEach { event ->
+                        OutlinedCard(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(14.dp)) {
+                                Text(event.phone, fontWeight = FontWeight.Bold)
+                                Text(if (event.blocked) "Odrzucono według Twojej listy" else "Dopuszczono przez filtr")
+                                Text(timestamp(event.time), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                    if (state.events.isNotEmpty()) TextButton(onClick = model::clearEvents) { Text("Wyczyść rejestr na urządzeniu") }
+                    InfoCard("Tożsamość rozmówcy", "Numer wyświetlany podczas połączenia może być sfałszowany. Prototyp nie nasłuchuje rozmów, nie rozpoznaje głosu i nie potwierdza, że dzwoni bank lub inna instytucja.")
+                    }
+                }
+                5 -> {
+                    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Prywatne notatki w chmurze", style = MaterialTheme.typography.headlineSmall)
+                    Text("Konto jest opcjonalne. Sprawdzanie treści i blokady działają bez logowania.")
+                    InfoCard("Supabase · czytoty-app", state.cloudStatus)
+                    OutlinedButton(onClick = model::checkCloud, enabled = !state.busy) { Text("Sprawdź połączenie z bazą") }
+                    if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (state.email == null) AuthForm(state.busy, model::authenticate)
+                    else {
+                        Text(state.email.orEmpty(), fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = model::loadCloud, enabled = !state.busy) { Text("Pobierz notatki") }
+                            TextButton(onClick = model::signOut, enabled = !state.busy) { Text("Wyloguj") }
+                        }
+                        Text("Notatki na koncie · ${state.cloudNotes.size} (do 100)", style = MaterialTheme.typography.titleMedium)
+                        if (state.cloudNotes.isEmpty()) Text("Brak pobranych notatek. Zapisz wybraną notatkę w zakładce Numery.")
+                        state.cloudNotes.forEach { note ->
+                            OutlinedCard(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(note.label.ifBlank { note.phone }, fontWeight = FontWeight.Bold)
+                                    Text(note.phone)
+                                    Text(note.note)
+                                    OutlinedButton(onClick = { model.restoreLocal(note) }, enabled = !state.busy) { Text("Kopiuj na urządzenie") }
+                                    TextButton(onClick = { model.removeCloud(note.phone) }, enabled = !state.busy) { Text("Usuń z chmury") }
+                                }
+                            }
+                        }
+                    }
+                    InfoCard("Co trafia do chmury?", "Tylko numer, etykieta i notatka, które zapiszesz przyciskiem „Zapisz w chmurze”, oraz dane konta. Notatki są prywatne, dostępne po zalogowaniu. SMS-y, sprawdzane linki, blokady i rejestr połączeń pozostają na urządzeniu.")
+                    TextButton(onClick = { openIntent(context, Intent(Intent.ACTION_VIEW, Uri.parse("https://cert.pl/lista-ostrzezen/"))) }) { Text("Źródło danych: CERT Polska / NASK") }
+                    Text("${BuildConfig.VERSION_NAME} · Android 8+; filtrowanie konfigurowane na Androidzie 10+.",
+                        style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
 }
 
 @Composable
-fun MainAppContent(
-  viewModel: CallerViewModel = viewModel(),
-  authViewModel: AuthViewModel = viewModel()
-) {
-  val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-  val authUiState by authViewModel.uiState.collectAsStateWithLifecycle()
-  val snackbarHostState = remember { SnackbarHostState() }
-  val context = LocalContext.current
-
-  val safetyCheckRepository = remember { SafetyCheckRepository() }
-  val safetyCheckManager = remember { SafetyCheckManager(safetyCheckRepository) }
-  val safetyCheckState by safetyCheckManager.state.collectAsState()
-  var isSafetyCheckSettingsOpen by remember { mutableStateOf(false) }
-
-  val tabs = listOf(
-    NavigationTab.Ostatnie,
-    NavigationTab.Wiadomosci,
-    NavigationTab.Sprawdz,
-    NavigationTab.Ochrona,
-    NavigationTab.Profil
-  )
-
-  LaunchedEffect(uiState.feedbackToastMessage) {
-    uiState.feedbackToastMessage?.let { msg ->
-      snackbarHostState.showSnackbar(msg)
-      viewModel.clearFeedbackMessage()
-    }
-  }
-
-  LaunchedEffect(authUiState.errorMessage) {
-    authUiState.errorMessage?.let { error ->
-      snackbarHostState.showSnackbar(error)
-      authViewModel.clearError()
-    }
-  }
-
-  // 1. Ekran połączenia przychodzącego (Call Screen / Overlay)
-  if (uiState.incomingCallPreview != null) {
-    IncomingCallScreen(
-      caller = uiState.incomingCallPreview!!,
-      onAnswer = { viewModel.answerIncomingCall() },
-      onReject = { viewModel.dismissIncomingCall(triggerRating = false) },
-      isSimulatedPreview = true
-    )
-    return
-  }
-
-  // 1b. Ekran aktywnego połączenia (Interactive In-Call Screen - Sekcje 76–96)
-  if (uiState.activeInCallState != null) {
-    val inCallScope = rememberCoroutineScope()
-    androidx.compose.runtime.DisposableEffect(Unit) {
-      val proximityManager = com.example.incall.sensor.AndroidProximitySensorManager(context, inCallScope)
-      proximityManager.setAudioRoute(uiState.activeInCallState!!.audioRoute)
-      proximityManager.startMonitoring()
-      val job = inCallScope.launch {
-        proximityManager.proximityState.collect { proxState ->
-          viewModel.onProximitySensorEvent(proxState == com.example.incall.model.ProximityState.NEAR)
+private fun SourceCard(state: PrototypeState, now: Long, refresh: () -> Unit) {
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Lista Ostrzeżeń CERT Polska", fontWeight = FontWeight.Bold)
+            val snapshot = state.snapshot
+            Text(when {
+                state.refreshing -> "Pobieranie aktualnej listy…"
+                snapshot == null -> "Brak pobranej listy. Sprawdzanie domen jest niedostępne."
+                snapshot.isFresh(now) -> "${snapshot.domains.size} domen · świeża kopia"
+                else -> "${snapshot.domains.size} domen · kopia wymaga aktualizacji"
+            }, color = if (snapshot?.isFresh(now) == true) MaterialTheme.colorScheme.primary else Amber)
+            snapshot?.let { Text("Pobrano: " + timestamp(it.fetchedAt), style = MaterialTheme.typography.bodySmall) }
+            if (state.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
+            else OutlinedButton(onClick = refresh) { Text("Aktualizuj listę CERT") }
         }
-      }
-      onDispose {
-        job.cancel()
-        proximityManager.stopMonitoring()
-      }
     }
+}
 
-    com.example.ui.screens.incall.ActiveCallScreen(
-      uiState = uiState.activeInCallState!!,
-      onToggleMute = { viewModel.toggleInCallMute() },
-      onToggleSpeaker = { viewModel.toggleInCallSpeaker() },
-      onToggleHold = { viewModel.toggleInCallHold() },
-      onToggleKeypad = { viewModel.toggleInCallKeypad(it) },
-      onDtmfDigit = { viewModel.sendInCallDtmfDigit(it) },
-      onClearDtmf = { viewModel.clearInCallDtmf() },
-      onToggleContextExpansion = { viewModel.toggleInCallContextExpansion(it) },
-      onHangup = { viewModel.hangupActiveCall() },
-      onOpenMessages = {
-        val number = uiState.activeInCallState!!.caller.phoneNumber
-        viewModel.openSenderProfile(number)
-      },
-      onStartSafetyCheck = {
-        viewModel.setInCallDynamicRiskWarning("Aktywna ochrona: analiza bezpieczeństwa w toku")
-      }
-    )
-    return
-  }
-
-  // 1b. Ekran logowania Supabase Auth (Google OAuth + PKCE / Guest Mode)
-  if (authUiState.isAuthScreenVisible) {
-    BackHandler { authViewModel.closeAuthScreen() }
-    AuthScreen(
-      isLoading = authUiState.isLoading,
-      errorMessage = authUiState.errorMessage,
-      onSignInWithGoogle = { authViewModel.signInWithGoogle() },
-      onContinueAsGuest = { authViewModel.continueAsGuest() },
-      onDismiss = { authViewModel.closeAuthScreen() }
-    )
-    return
-  }
-
-  // 2. Ekran Onboarding (Zasady działania)
-  if (uiState.isOnboardingVisible) {
-    BackHandler { viewModel.dismissOnboarding() }
-    OnboardingScreen(onComplete = { viewModel.dismissOnboarding() })
-    return
-  }
-
-  // 2b. Ekran Diagnostyki Silnika v1.0.0 (Inspector dla developera / audytora)
-  if (uiState.isEngineDebugVisible) {
-    BackHandler { viewModel.closeEngineDebug() }
-    EngineDebugScreen(onBack = { viewModel.closeEngineDebug() })
-    return
-  }
-
-  // 3. Ekran konwersacji SMS (wątek)
-  if (uiState.selectedThreadId != null) {
-    val activeThread = uiState.smsThreads.firstOrNull { it.threadId == uiState.selectedThreadId }
-    if (activeThread != null) {
-      BackHandler { viewModel.closeThread() }
-      SmsConversationDetailScreen(
-        thread = activeThread,
-        messages = uiState.activeThreadMessages,
-        onBack = { viewModel.closeThread() },
-        onSenderProfileClick = { sender -> viewModel.openSenderProfile(sender) },
-        onSendMessage = { text -> viewModel.sendSms(text) },
-        onOpenLinkModal = { analysis, isOfficial, brandName ->
-          viewModel.openLinkSafetyModal(analysis, isOfficial, brandName)
-        }
-      )
-      return
-    }
-  }
-
-  // 4. Wspólny profil nadawcy (Karta Nadawcy: Połączenia + SMS)
-  if (uiState.selectedSenderProfile != null) {
-    BackHandler { viewModel.closeSenderProfile() }
-    SenderProfileScreen(
-      profile = uiState.selectedSenderProfile!!,
-      onBack = { viewModel.closeSenderProfile() },
-      onToggleBlock = { viewModel.toggleBlock(it) },
-      onReport = { address ->
-        val dummyCall = CallRecord(
-          id = "report-$address",
-          caller = com.example.model.CallerInfo(
-            phoneNumber = address,
-            formattedNumber = address,
-            displayName = uiState.selectedSenderProfile?.displayName,
-            category = "Zgłoszenie nadawcy",
-            riskScore = uiState.selectedSenderProfile!!.combinedRiskScore,
-            confidence = uiState.selectedSenderProfile!!.confidence,
-            totalReports = uiState.selectedSenderProfile!!.callsCount + uiState.selectedSenderProfile!!.smsCount,
-            reportsLast24h = 1
-          ),
-          timestamp = "Teraz",
-          callType = CallType.INCOMING
-        )
-        viewModel.startReporting(dummyCall)
-      },
-      onOpenSmsThread = { address ->
-        viewModel.closeSenderProfile()
-        viewModel.openSmsWithRecipient(address)
-      }
-    )
-    return
-  }
-
-  // 5. Szczegóły numeru z połączenia
-  if (uiState.selectedCallerForDetails != null) {
-    BackHandler { viewModel.closeNumberDetails() }
-    NumberDetailsScreen(
-      caller = uiState.selectedCallerForDetails!!,
-      onBack = { viewModel.closeNumberDetails() },
-      onToggleBlock = { viewModel.toggleBlock(it) },
-      onReportClick = { caller ->
-        viewModel.startReporting(
-          CallRecord(
-            id = "custom-report",
-            caller = caller,
-            timestamp = "Teraz",
-            callType = CallType.INCOMING
-          )
-        )
-      },
-      onShareClick = { caller ->
-        val shareText = "Uwaga na numer: ${caller.formattedNumber} (${caller.category}, ${caller.riskScore}% ryzyka). Sprawdzone w Bezpiecznym Telefonie."
-        val sendIntent = Intent().apply {
-          action = Intent.ACTION_SEND
-          putExtra(Intent.EXTRA_TEXT, shareText)
-          type = "text/plain"
-        }
-        val shareIntent = Intent.createChooser(sendIntent, "Udostępnij ostrzeżenie")
-        context.startActivity(shareIntent)
-      }
-    )
-
-    if (uiState.activeReportingCall != null) {
-      ReportBottomSheet(
-        callRecord = uiState.activeReportingCall,
-        onDismiss = { viewModel.dismissReporting() },
-        onSubmit = { rating, category -> viewModel.submitReport(rating, category) }
-      )
-    }
-    return
-  }
-
-  // 6. Szczegóły zunifikowanego kontaktu (Sekcja 34 - Unified Contact Profile)
-  if (uiState.selectedUnifiedContact != null) {
-    BackHandler { viewModel.closeContactDetail() }
-    UnifiedContactDetailScreen(
-      contact = uiState.selectedUnifiedContact!!,
-      onBack = { viewModel.closeContactDetail() },
-      onTogglePin = { id -> viewModel.togglePinContact(id) },
-      onToggleQuickContact = { id -> viewModel.toggleQuickContact(id) },
-      onOpenSmsThread = { address ->
-        viewModel.closeContactDetail()
-        viewModel.openSmsWithRecipient(address)
-      }
-    )
-    return
-  }
-
-  // 7. Ekran pełnej książki kontaktów 2.0 (Sekcje 33–38)
-  if (uiState.isContactsScreenOpen) {
-    BackHandler { viewModel.closeContactsScreen() }
-    ContactsScreen(
-      contacts = uiState.unifiedContacts,
-      currentSortMode = uiState.contactSortMode,
-      onSelectContact = { contact -> viewModel.openContactDetail(contact) },
-      onTogglePin = { id -> viewModel.togglePinContact(id) },
-      onToggleQuickContact = { id -> viewModel.toggleQuickContact(id) },
-      onSetSortMode = { mode -> viewModel.setContactSortMode(mode) },
-      onReorderManual = { from, to -> viewModel.reorderContactsManual(from, to) },
-      onAddContact = { contact -> viewModel.addCustomContact(contact) },
-      onAcceptSmartSuggestion = { id -> viewModel.acceptSmartSuggestion(id) },
-      onDismissSmartSuggestion = { id -> viewModel.dismissSmartSuggestion(id) },
-      onOpenSmsThread = { address ->
-        viewModel.closeContactsScreen()
-        viewModel.openSmsWithRecipient(address)
-      },
-      onBack = { viewModel.closeContactsScreen() }
-    )
-    return
-  }
-
-  // 8. Ekran konfiguracji Trybu Pomocy (Safety Check - 100% OPT-IN)
-  if (isSafetyCheckSettingsOpen) {
-    BackHandler { isSafetyCheckSettingsOpen = false }
-    SafetyCheckSettingsScreen(
-      repository = safetyCheckRepository,
-      onBack = { isSafetyCheckSettingsOpen = false }
-    )
-    return
-  }
-
-  // Główny szkielet z dolną nawigacją (Material 3 Dark luxury)
-  Scaffold(
-    containerColor = AppDarkBackground,
-    snackbarHost = { SnackbarHost(snackbarHostState) },
-    bottomBar = {
-      val borderLineColor = Color(0xFF232034)
-      Row(
-        modifier = Modifier
-          .fillMaxWidth()
-          .background(Color(0xFF100F17))
-          .drawBehind {
-            drawLine(
-              color = borderLineColor,
-              start = Offset(0f, 0f),
-              end = Offset(size.width, 0f),
-              strokeWidth = 1.dp.toPx()
-            )
-          }
-          .windowInsetsPadding(WindowInsets.navigationBars)
-          .padding(vertical = 8.dp)
-          .testTag("bottom_navigation_bar"),
-        horizontalArrangement = Arrangement.SpaceAround,
-        verticalAlignment = Alignment.CenterVertically
-      ) {
-        tabs.forEachIndexed { index, tab ->
-          val isSelected = uiState.currentTabIndex == index
-          Column(
-            modifier = Modifier
-              .clip(CircleShape)
-              .clickable { viewModel.selectTab(index) }
-              .padding(horizontal = 12.dp, vertical = 4.dp)
-              .testTag(tab.testTag),
-            horizontalAlignment = Alignment.CenterHorizontally
-          ) {
-            if (tab.drawableRes != null) {
-              Icon(
-                painter = androidx.compose.ui.res.painterResource(id = tab.drawableRes),
-                contentDescription = tab.title,
-                tint = if (isSelected) AppPurple else Color(0xFF827F97),
-                modifier = Modifier.size(22.dp)
-              )
-            } else {
-              Icon(
-                imageVector = if (isSelected) tab.selectedIcon!! else tab.unselectedIcon!!,
-                contentDescription = tab.title,
-                tint = if (isSelected) AppPurple else Color(0xFF827F97),
-                modifier = Modifier.size(22.dp)
-              )
+@Composable
+private fun AnalysisCard(result: MessageAnalysis, fresh: Boolean) {
+    val matches = result.findings.filter { it.matchedDomain != null }
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(
+        containerColor = if (matches.isNotEmpty()) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant
+    )) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(when {
+                result.snapshotTime == null -> "Brak danych do sprawdzenia domen"
+                matches.isNotEmpty() && fresh -> "Ostrzeżenie CERT: wykryto domenę z listy"
+                matches.isNotEmpty() -> "Domena figuruje w zapisanej kopii listy"
+                result.findings.isEmpty() -> "Nie znaleziono rozpoznawalnego adresu"
+                else -> "Nie znaleziono domen na liście CERT"
+            }, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("analysis_result"))
+            if (!fresh) Text("Lista nie jest aktualna lub nie została pobrana. Ten wynik nie opisuje bieżącego stanu CERT.")
+            result.findings.forEach {
+                Text(it.host, fontWeight = FontWeight.Bold)
+                Text(when {
+                    result.snapshotTime == null -> "Nie sprawdzono — brak listy."
+                    it.matchedDomain != null -> "Wpis CERT: ${it.matchedDomain}"
+                    else -> "Brak wpisu w sprawdzonej kopii. To nie potwierdza bezpieczeństwa."
+                })
             }
+            result.localSignals.forEach { Text(it) }
+            if (matches.isNotEmpty()) Text("Nie otwieraj podejrzanego linku. Sprawdź sprawę w oficjalnej aplikacji lub niezależnie znalezionym kanale kontaktu.")
+            Text("Analiza tekstu jest oparta na prostych regułach. Nie rozstrzyga, czy wiadomość jest oszustwem.", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(3.dp))
-
-            Text(
-              text = tab.title,
-              fontSize = 11.sp,
-              fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-              color = if (isSelected) AppPurple else Color(0xFF827F97)
-            )
-
-            if (isSelected) {
-              Spacer(modifier = Modifier.height(2.dp))
-              Box(
-                modifier = Modifier
-                  .size(4.dp)
-                  .clip(CircleShape)
-                  .background(AppPurple)
-              )
-            } else {
-              Spacer(modifier = Modifier.height(6.dp))
+@Composable
+private fun PhoneEditor(phone: ParsedPhone, state: PrototypeState, model: PrototypeViewModel, roleGranted: Boolean) {
+    val saved = state.notes.find { it.phone == phone.e164 }
+    var label by remember(phone.e164, saved) { mutableStateOf(saved?.label.orEmpty()) }
+    var note by remember(phone.e164, saved) { mutableStateOf(saved?.note.orEmpty()) }
+    var blocked by remember(phone.e164, saved) { mutableStateOf(saved?.blocked == true) }
+    val context = LocalContext.current
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(phone.formatted, style = MaterialTheme.typography.titleLarge)
+            Text("Plan numeracji: ${phone.country} · poprawny format")
+            Text("Format sprawdzono na podstawie Google libphonenumber. To nie potwierdza aktywności numeru, jego właściciela ani reputacji.", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(label, { label = it.take(80) }, label = { Text("Twoja etykieta") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(note, { note = it.take(500) }, label = { Text("Prywatna notatka") },
+                minLines = 2, modifier = Modifier.fillMaxWidth().testTag("note_input"))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Dodaj do mojej listy blokad", Modifier.weight(1f))
+                Switch(blocked, { blocked = it }, modifier = Modifier.testTag("blocked_switch"))
             }
-          }
+            if (blocked && (!roleGranted || !state.protectionEnabled)) Text("Blokada zacznie działać po zapisaniu i włączeniu filtrowania w zakładce Ochrona.", color = Amber)
+            Button(onClick = { model.saveLocal(PhoneNote(phone.e164, label, note, blocked)) },
+                modifier = Modifier.fillMaxWidth().testTag("save_local")) { Text("Zapisz na urządzeniu") }
+            if (state.email != null) OutlinedButton(onClick = { model.saveCloud(PhoneNote(phone.e164, label, note)) }, enabled = !state.busy,
+                modifier = Modifier.fillMaxWidth()) { Text("Zapisz w chmurze") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { openIntent(context, Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", phone.e164, null))) }) { Text("Otwórz telefon") }
+                TextButton(onClick = { openIntent(context, Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", phone.e164, null))) }) { Text("Otwórz SMS") }
+            }
         }
-      }
-    },
-    modifier = Modifier.fillMaxSize()
-  ) { innerPadding ->
-    Box(
-      modifier = Modifier
-        .fillMaxSize()
-        .padding(innerPadding)
-    ) {
-      AnimatedContent(
-        targetState = uiState.currentTabIndex,
-        transitionSpec = { fadeIn() togetherWith fadeOut() },
-        label = "TabContentAnimation"
-      ) { tabIndex ->
-        when (tabIndex) {
-          // 0: Ostatnie (Centrum komunikacji)
-          0 -> HomeScreen(
-            recentCalls = uiState.recentCalls,
-            smsThreads = uiState.smsThreads,
-            unifiedContacts = uiState.unifiedContacts,
-            onNavigateToCalls = {
-              viewModel.openSenderProfile("+48 732 123 456")
-            },
-            onNavigateToMessages = { viewModel.selectTab(1) },
-            onNavigateToCheck = { viewModel.selectTab(2) },
-            onNavigateToProtection = { viewModel.selectTab(3) },
-            onNavigateToContacts = { viewModel.openContactsScreen() },
-            onSelectContact = { contact -> viewModel.openContactDetail(contact) },
-            onLookupNumber = { query ->
-              viewModel.updateSearchQuery(query)
-              viewModel.selectTab(2)
-            },
-            onOpenSmsThread = { threadId -> viewModel.openThread(threadId) }
-          )
-
-          // 1: Wiadomości (SMS)
-          1 -> SmsConversationsScreen(
-            threads = uiState.smsThreads,
-            onThreadClick = { threadId -> viewModel.openThread(threadId) },
-            onSenderProfileClick = { sender -> viewModel.openSenderProfile(sender) },
-            onNewMessage = {
-              viewModel.openSmsWithRecipient("+48 600 000 000")
-            },
-            onSimulateSms = { scenario -> viewModel.triggerSmsSimulation(scenario) },
-            onTogglePin = { threadId -> viewModel.togglePinThread(threadId) },
-            onReorderPinned = { from, to -> viewModel.reorderPinnedThreads(from, to) },
-            onToggleMute = { threadId -> viewModel.toggleMuteThread(threadId) },
-            onToggleArchive = { threadId -> viewModel.toggleArchiveThread(threadId) },
-            onDeleteThread = { threadId -> viewModel.deleteThreadLocally(threadId) },
-            onMarkSpam = { threadId -> viewModel.markThreadAsSpam(threadId) }
-          )
-
-          // 2: Sprawdź (Sprawdź numer - SEKCJE 19–31: Crowdsourcing i Dynamiczna Reputacja)
-          2 -> {
-            val queryNumber = uiState.searchQuery.ifBlank { "+48 732 123 456" }
-            val callerInfo = uiState.searchResult ?: viewModel.getCallerForNumber(queryNumber)
-            val communityReputation = uiState.communityReputations[callerInfo.phoneNumber]
-            val userRating = uiState.userRatings[callerInfo.phoneNumber]
-
-            VerifyNumberScreen(
-              initialNumber = callerInfo.phoneNumber,
-              callerInfo = callerInfo,
-              communityReputation = communityReputation,
-              userRating = userRating,
-              onRateNumber = { rating, subCat ->
-                viewModel.submitQuickRating(callerInfo.phoneNumber, rating, subCat)
-              },
-              onBack = { viewModel.selectTab(0) },
-              onSelectNumber = { num ->
-                viewModel.updateSearchQuery(num)
-              }
-            )
-          }
-
-          // 3: Ochrona (Ustawienia ochrony)
-          3 -> ProtectionScreen(
-            settings = uiState.protectionSettings,
-            onUpdateSettings = { transform -> viewModel.updateProtectionSettings(transform) }
-          )
-
-          // 4: Profil (Konto i uprawnienia)
-          4 -> MoreSettingsScreen(
-            userProfile = uiState.userProfile,
-            authUser = authUiState.currentUser,
-            isGuestMode = authUiState.isGuestMode,
-            onSignInClick = { authViewModel.openAuthScreen() },
-            onSignOutClick = { authViewModel.signOut() },
-            onOpenOnboarding = { viewModel.showOnboarding() },
-            onOpenContacts = { viewModel.openContactsScreen() },
-            onOpenEngineDebug = { viewModel.openEngineDebug() },
-            onOpenSafetyCheck = { isSafetyCheckSettingsOpen = true }
-          )
-        }
-      }
     }
-  }
+}
 
-  // Report Bottom Sheet overlay
-  if (uiState.activeReportingCall != null) {
-    ReportBottomSheet(
-      callRecord = uiState.activeReportingCall,
-      onDismiss = { viewModel.dismissReporting() },
-      onSubmit = { rating, category -> viewModel.submitReport(rating, category) }
-    )
-  }
+@Composable
+private fun AuthForm(busy: Boolean, authenticate: (String, String, Boolean) -> Unit) {
+    var email by rememberSaveable { mutableStateOf("") }
+    // Password stays in composition memory only; it is never persisted by saved instance state.
+    var password by remember { mutableStateOf("") }
+    OutlinedTextField(email, { email = it.take(254) }, label = { Text("Adres e-mail") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+    OutlinedTextField(password, { password = it.take(128) }, label = { Text("Hasło (minimum 8 znaków)") },
+        visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+    Button(onClick = { authenticate(email, password, false); password = "" }, enabled = !busy && email.isNotBlank() && password.length >= 8,
+        modifier = Modifier.fillMaxWidth()) { Text("Zaloguj się") }
+    OutlinedButton(onClick = { authenticate(email, password, true); password = "" }, enabled = !busy && email.isNotBlank() && password.length >= 8,
+        modifier = Modifier.fillMaxWidth()) { Text("Utwórz konto e-mail") }
+    Text("Rejestracja może wymagać potwierdzenia adresu przez wiadomość Supabase. Po potwierdzeniu wróć tutaj i zaloguj się.",
+        style = MaterialTheme.typography.bodySmall)
+}
 
-  // Karta oceny po połączeniu (SEKCJE 19–31: Crowdsourcing & Dynamiczna Reputacja)
-  if (uiState.postCallEvaluation != null) {
-    Box(
-      modifier = Modifier
-        .fillMaxSize()
-        .padding(bottom = 76.dp),
-      contentAlignment = Alignment.BottomCenter
-    ) {
-      PostCallRatingCard(
-        evaluation = uiState.postCallEvaluation!!,
-        onDismiss = { viewModel.dismissPostCallEvaluation() },
-        onSubmitRating = { rating, subCategory ->
-          viewModel.submitQuickRating(
-            phoneNumber = uiState.postCallEvaluation!!.callerInfo.phoneNumber,
-            rating = rating,
-            subCategory = subCategory
-          )
+@Composable
+private fun InfoCard(title: String, text: String) {
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, fontWeight = FontWeight.Bold)
+            Text(text, style = MaterialTheme.typography.bodyMedium)
         }
-      )
     }
-  }
+}
 
-  // Overlay Trybu Pomocy (Safety Check Countdown / Alert Confirmation)
-  SafetyCheckTriggerDialog(
-    state = safetyCheckState,
-    onConfirmedOk = { safetyCheckManager.userAcknowledgedOk() },
-    onRequestHelpNow = { safetyCheckManager.userRequestedHelpNow() },
-    onDismiss = { safetyCheckManager.cancel() }
-  )
-
-  // Modal weryfikacji linku (Link Safety - Sekcja 48)
-  uiState.activeLinkModal?.let { modalState ->
-    LinkSafetyDialog(
-      state = modalState,
-      onDismiss = { viewModel.dismissLinkSafetyModal() }
-    )
-  }
+private fun openIntent(context: android.content.Context, intent: Intent) {
+    try { context.startActivity(intent) }
+    catch (_: ActivityNotFoundException) { Toast.makeText(context, "Brak aplikacji obsługującej tę czynność.", Toast.LENGTH_LONG).show() }
 }

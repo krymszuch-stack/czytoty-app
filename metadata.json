@@ -1,6 +1,1 @@
-{
-  "name": "CzyToTy?",
-  "description": "Telefon • Wiadomości • Ochrona. Wiesz, zanim odbierzesz. Spokój zaczyna się od informacji.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
+{"name":"CzyToTy?","description":"Prototyp Android 3w1: telefon z historią i kontaktami, rzeczywista skrzynka i wysyłka SMS, lokalne ostrzeżenia CERT oraz własne blokady numerów. Prywatne notatki Supabase.","requestFramePermissions":[],"majorCapabilities":[]}

@@ -79,7 +79,8 @@ fun MyApplicationTheme(
 
   MaterialTheme(
     colorScheme = colorScheme,
-    typography = Typography,
-    content = content
-  )
+    typography = Typography
+  ) {
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides colorScheme.onSurface) { content() }
+  }
 }

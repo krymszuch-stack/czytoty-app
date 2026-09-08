@@ -3,52 +3,25 @@ package com.example.service
 import android.os.Build
 import android.telecom.Call
 import android.telecom.CallScreeningService
-import androidx.annotation.RequiresApi
-import com.example.data.DefaultCallerRepository
-import com.example.model.RiskSeverity
+import com.example.data.LocalStore
+import com.example.data.PhoneNumbers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
-/**
- * Minimalna produkcyjna implementacja CallScreeningService systemu Android.
- * Odpowiada za bezpośrednie filtrowanie przychodzących połączeń w czasie rzeczywistym
- * z poziomu telekomunikacyjnego stosu Androida (gdy użytkownik nada uprawnienie w systemie).
- */
-@RequiresApi(Build.VERSION_CODES.Q)
 class ScamCallScreeningService : CallScreeningService() {
-
-  private val repository = DefaultCallerRepository()
-
-  override fun onScreenCall(callDetails: Call.Details) {
-    val handle = callDetails.handle
-    val incomingNumber = handle?.schemeSpecificPart ?: "Nieznany"
-
-    // Szybki lokalny lookup (Offline-First)
-    val callerInfo = repository.lookupNumber(incomingNumber)
-    val isHighRisk = callerInfo.severity == RiskSeverity.HIGH
-    val settings = repository.protectionSettings.value
-
-    val shouldBlock = isHighRisk && settings.isProtectionActive && settings.blockHighRisk
-
-    // Rejestracja zdarzenia w lokalnym dzienniku bez konieczności uprawnienia READ_CALL_LOG
-    repository.recordScreeningEvent(
-      phoneNumber = incomingNumber,
-      action = if (shouldBlock) "BLOCKED" else "ALLOWED"
-    )
-
-    // Przekazanie do aktywnego UI jeśli aplikacja jest na pierwszym planie
-    CallScreeningBridge.postIncomingCall(
-      IncomingCallEvent(
-        callerInfo = callerInfo,
-        isRealScreeningServiceCall = true
-      )
-    )
-
-    val response = CallResponse.Builder()
-      .setDisallowCall(shouldBlock)
-      .setRejectCall(shouldBlock)
-      .setSkipCallLog(false)
-      .setSkipNotification(shouldBlock)
-      .build()
-
-    respondToCall(callDetails, response)
-  }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    override fun onScreenCall(details: Call.Details) {
+        if (Build.VERSION.SDK_INT >= 29 && details.callDirection != Call.Details.DIRECTION_INCOMING) return
+        val raw = details.handle?.schemeSpecificPart.orEmpty()
+        val phone = PhoneNumbers.parse(raw)?.e164
+        val store = LocalStore.get(this)
+        // No network request on this path. Fail open; respond before logging to stay within Android's 5s limit.
+        val blocked = phone != null && runCatching { store.protectionEnabled && store.isBlocked(phone) }.getOrDefault(false)
+        respondToCall(details, CallResponse.Builder()
+            .setDisallowCall(blocked).setRejectCall(blocked)
+            .setSkipCallLog(false).setSkipNotification(false).build())
+        scope.launch { runCatching { store.record(phone ?: "Numer niedostępny", blocked) } }
+    }
 }
