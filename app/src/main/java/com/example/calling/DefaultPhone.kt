@@ -24,6 +24,13 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 
 object DefaultPhone {
+    fun openDialer(context: Context, value: String) {
+        val target = DialTarget.normalize(value) ?: return
+        context.startActivity(Intent(context, com.example.MainActivity::class.java).apply {
+            action = Intent.ACTION_DIAL; data = Uri.fromParts("tel", target, null)
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        })
+    }
     fun isDefault(context: Context) = context.getSystemService(TelecomManager::class.java)?.defaultDialerPackage == context.packageName
     fun call(context: Context, value: String) {
         val target = DialTarget.normalize(value) ?: return

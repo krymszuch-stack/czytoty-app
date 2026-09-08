@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.ochronapolaczen.ktwzpd"
     minSdk = 26
     targetSdk = 36
-    versionCode = 5
-    versionName = "0.5.0-prototype"
+    versionCode = 6
+    versionName = "0.6.0-prototype"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     buildConfigField("String", "SUPABASE_URL", quoted(config("SUPABASE_URL")))
     buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", quoted(config("SUPABASE_PUBLISHABLE_KEY")))
@@ -58,6 +58,8 @@ dependencies {
   testImplementation(libs.robolectric)
   testImplementation(libs.androidx.core)
   testImplementation(libs.kotlinx.coroutines.test)
+  testImplementation(platform(libs.androidx.compose.bom))
+  testImplementation(libs.androidx.compose.ui.test.junit4)
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
   androidTestImplementation(libs.androidx.espresso.core)

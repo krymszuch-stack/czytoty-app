@@ -88,13 +88,13 @@ val md_theme_light_error = Color(0xFFB3261E)
 val md_theme_light_errorContainer = Color(0xFFF9DEDC)
 val md_theme_light_onError = Color(0xFFFFFFFF)
 val md_theme_light_onErrorContainer = Color(0xFF410E0B)
-val md_theme_light_background = Color(0xFF0F0E15)
-val md_theme_light_onBackground = Color(0xFFFFFFFF)
-val md_theme_light_surface = Color(0xFF161521)
-val md_theme_light_onSurface = Color(0xFFFFFFFF)
-val md_theme_light_surfaceVariant = Color(0xFF1B1928)
-val md_theme_light_onSurfaceVariant = Color(0xFF9E9BAE)
-val md_theme_light_outline = Color(0xFF29253C)
+val md_theme_light_background = Color(0xFFFAF8FF)
+val md_theme_light_onBackground = Color(0xFF201D28)
+val md_theme_light_surface = Color(0xFFFAF8FF)
+val md_theme_light_onSurface = Color(0xFF201D28)
+val md_theme_light_surfaceVariant = Color(0xFFECE7F2)
+val md_theme_light_onSurfaceVariant = Color(0xFF5E5869)
+val md_theme_light_outline = Color(0xFF7B7386)
 val md_theme_light_surfaceContainer = Color(0xFF1B1928)
 val md_theme_light_surfaceContainerHigh = Color(0xFF232034)
 
@@ -122,4 +122,3 @@ val RiskHighOnContainer = AppRedText
 val VerifiedBlue = AppBlue
 val VerifiedBlueContainer = AppBlueContainer
 val VerifiedBlueOnContainer = AppBlue
-

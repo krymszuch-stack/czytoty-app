@@ -9,6 +9,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 
 private val DarkColorScheme = darkColorScheme(
   primary = md_theme_dark_primary,
@@ -64,23 +65,38 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun MyApplicationTheme(
-  darkTheme: Boolean = isSystemInDarkTheme(),
-  dynamicColor: Boolean = false,
+  darkTheme: Boolean? = null,
+  dynamicColor: Boolean? = null,
+  appearance: Appearance = rememberAppearance(),
   content: @Composable () -> Unit,
 ) {
-  val colorScheme = when {
-    dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+  val dark = darkTheme ?: when (appearance.mode) {
+    ThemeMode.SYSTEM -> isSystemInDarkTheme()
+    ThemeMode.DARK -> true
+    ThemeMode.LIGHT -> false
+  }
+  val base = when {
+    (dynamicColor ?: appearance.dynamic) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
       val context = LocalContext.current
-      if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+      if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     }
-    darkTheme -> DarkColorScheme
+    dark -> DarkColorScheme
     else -> LightColorScheme
+  }
+  val colorScheme = if ((dynamicColor ?: appearance.dynamic) && Build.VERSION.SDK_INT >= 31) base else {
+    val colors = when (appearance.accent) {
+      Accent.LAVENDER -> if (dark) listOf(0xFFD0BCFF, 0xFF38205D, 0xFF493365, 0xFFF0E5FF) else listOf(0xFF67449B, 0xFFFFFFFF, 0xFFECDDFF, 0xFF291047)
+      Accent.OCEAN -> if (dark) listOf(0xFFA4C9FF, 0xFF00315D, 0xFF24466A, 0xFFD6E8FF) else listOf(0xFF245D96, 0xFFFFFFFF, 0xFFD4E5FF, 0xFF07315A)
+      Accent.MINT -> if (dark) listOf(0xFF8DD8C0, 0xFF00382B, 0xFF245345, 0xFFB2F1DC) else listOf(0xFF176B55, 0xFFFFFFFF, 0xFFB2F1DC, 0xFF00382B)
+    }.map { Color(it) }
+    base.copy(primary = colors[0], onPrimary = colors[1], primaryContainer = colors[2], onPrimaryContainer = colors[3])
   }
 
   MaterialTheme(
     colorScheme = colorScheme,
     typography = Typography
   ) {
-    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides colorScheme.onSurface) { content() }
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides colorScheme.onSurface,
+      LocalAppearance provides appearance) { content() }
   }
 }

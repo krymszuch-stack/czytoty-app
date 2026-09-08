@@ -2,6 +2,15 @@
 
 Sprawdzanie wiadomości i linków na podstawie **rzeczywistej Listy Ostrzeżeń CERT Polska**, własny dialer i prototyp ekranu rozmów, podgląd i wysyłka SMS przez operatora, własne blokady numerów oraz prywatne notatki. Aplikacja nie przypisuje numerom zmyślonej reputacji ani nie udaje weryfikacji rozmówcy.
 
+## Nowe w wersji 0.6
+
+- **Ikona palety u góry → Po Twojemu:** motyw systemowy/jasny/ciemny, trzy akcenty, kolory tapety na Androidzie 12+, większy tekst wiadomości, zwarta lista, kształt dymków i wibracje klawiatury. Ustawienia zostają na urządzeniu.
+- **SMS:** przypinanie rozmów i filtr przypiętych; wyszukiwanie także we wcześniejszych wczytanych SMS-ach; szkice zapisane w oddzielnej lokalnej bazie SQLite, oznaczone na liście wątków. Licznik części SMS i szybkie otwarcie numeru w klawiaturze telefonu.
+- **Rozmowa:** więcej miejsca po ukryciu głównego paska nawigacji; strzałka wstecz prowadzi do skrzynki. Przy próbie zastąpienia szkicu do innego odbiorcy pojawia się wybór zachowania albo zastąpienia szkicu.
+- **Telefon:** wyszukiwanie ostatnich połączeń, filtr nieodebranych, ustawienia wyglądu także na ekranie połączenia.
+
+Weryfikacja tej wersji: [raport 0.6](artifacts/VERIFICATION-0.6.md), [kontrola baz i źródeł](artifacts/DATABASE-AUDIT-0.6.md). [Materiały demo i szkic LinkedIn](artifacts/linkedin/README.md) powstały z komponentów Compose na danych syntetycznych. Nie są testem transmisji operatora ani deklaracją pełnego zastąpienia Google/Apple Messages.
+
 ## Dostępne funkcje (3w1)
 
 - **Telefon:** Ostatnie / Kontakty / Klawiatura, haptyka i przytrzymanie 0 dla +. Opcjonalna rola domyślnego Telefonu uruchamia własny ekran połączeń przez InCallService: odbieranie audio, odrzucanie, rozłączanie, mikrofon, urządzenia audio, DTMF, zawieszanie i łączenie rozmów, gdy operator udostępnia te funkcje. Połączenia z roli domyślnej są zlecane przez TelecomManager; bez tej roli numer otwiera się w obecnym telefonie systemowym. To integracja prototypowa wymagająca testów operatora przed codziennym użyciem.
@@ -74,7 +83,7 @@ Identyfikator debug APK to `com.aistudio.ochronapolaczen.ktwzpd.prototype`. Dzi�
 - [Android: filtrowanie połączeń](https://developer.android.com/develop/connectivity/telecom/dialer-app/screen-calls)
 - [Supabase: Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
 
-Wyniki wykonanych testów i zakres kontroli urządzenia: `artifacts/VERIFICATION.md`.
+Aktualne wyniki testów: `artifacts/VERIFICATION-0.6.md`. Historyczna kontrola urządzenia w wersji 0.5: `artifacts/VERIFICATION.md`.
 
 
 ## Logo i ikony

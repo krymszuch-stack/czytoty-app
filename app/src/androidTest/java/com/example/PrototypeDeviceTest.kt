@@ -75,8 +75,10 @@ class PrototypeDeviceTest {
         rule.onNodeWithTag("sms_address").performTextReplacement("+12025550123")
         rule.onNodeWithTag("sms_body").performTextReplacement("Syntetyczny szkic QA — nie wysyłać")
         rule.onNodeWithTag("sms_send").assertIsEnabled()
+        rule.onNodeWithContentDescription("Wróć do wiadomości").performClick()
         rule.onNodeWithTag("tab_0").performClick()
         rule.onNodeWithTag("tab_1").performClick()
+        rule.onNodeWithTag("sms_new").performClick()
         rule.onNodeWithTag("sms_body").assertTextContains("Syntetyczny szkic QA — nie wysyłać")
     }
 

@@ -27,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -53,7 +54,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         handleShared(intent)
-        setContent { MyApplicationTheme(darkTheme = true) { PrototypeApp(model) } }
+        setContent { MyApplicationTheme {
+            val dark = MaterialTheme.colorScheme.background.luminance() < .5f
+            SideEffect { enableEdgeToEdge(
+                statusBarStyle = if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT) else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+                navigationBarStyle = if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT) else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)) }
+            PrototypeApp(model)
+        } }
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -69,7 +76,8 @@ class MainActivity : ComponentActivity() {
 }
 
 private fun timestamp(value: Long): String = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(value))
-private val Amber = Color(0xFFFFD089)
+private val Amber: Color
+    @Composable get() = if (MaterialTheme.colorScheme.background.luminance() < .5f) Color(0xFFFFD089) else Color(0xFF805000)
 
 @Composable
 private fun PrototypeApp(model: PrototypeViewModel) {
@@ -80,6 +88,7 @@ private fun PrototypeApp(model: PrototypeViewModel) {
     var message by rememberSaveable { mutableStateOf("") }
     var phoneInput by rememberSaveable { mutableStateOf("") }
     var smsPrefill by rememberSaveable { mutableStateOf("") }
+    var smsConversationOpen by remember { mutableStateOf(false) }
     var dialPrefill by rememberSaveable { mutableStateOf<String?>(null) }
     var roleGranted by remember { mutableStateOf(false) }
     var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -87,6 +96,8 @@ private fun PrototypeApp(model: PrototypeViewModel) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val snackbar = remember { SnackbarHostState() }
+    var appearanceOpen by remember { mutableStateOf(false) }
+    if (appearanceOpen) com.example.ui.theme.AppearanceSheet { appearanceOpen = false }
     fun updateRole() {
         roleGranted = Build.VERSION.SDK_INT >= 29 &&
             context.getSystemService(RoleManager::class.java)?.isRoleHeld(RoleManager.ROLE_CALL_SCREENING) == true
@@ -124,7 +135,7 @@ private fun PrototypeApp(model: PrototypeViewModel) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
-            NavigationBar {
+            if (tab != 1 || !smsConversationOpen) NavigationBar {
                 listOf(0, 1, 2, 4).forEach { index ->
                     val label = labels[index]
                     NavigationBarItem(selected = tab == index, onClick = { tab = index },
@@ -136,9 +147,10 @@ private fun PrototypeApp(model: PrototypeViewModel) {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 20.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (tab != 1 || !smsConversationOpen) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Image(painterResource(R.drawable.ic_brand_mark), "Logo CzyToTy?", modifier = Modifier.size(28.dp))
                 Text("CzyToTy?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                IconButton(onClick = { appearanceOpen = true }, modifier = Modifier.testTag("appearance")) { Icon(Icons.Outlined.Palette, "Dostosuj wygląd") }
                 IconButton(onClick = { tab = 3 }, modifier = Modifier.testTag("tab_3")) { Icon(Icons.Outlined.Contacts, "Numery i notatki") }
                 IconButton(onClick = { tab = 5 }, modifier = Modifier.testTag("tab_5")) { Icon(painterResource(R.drawable.ic_account), "Konto", modifier = Modifier.size(24.dp)) }
             }
@@ -167,7 +179,8 @@ private fun PrototypeApp(model: PrototypeViewModel) {
                         initialAddress = smsPrefill,
                         onAddressConsumed = { smsPrefill = "" },
                         onCheckText = { message = it.take(20_000); model.clearAnalysis(); tab = 2 },
-                        amber = Amber
+                        amber = Amber,
+                        onConversationChanged = { smsConversationOpen = it }
                     )
                 }
                 2 -> {

@@ -7,6 +7,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -36,18 +38,23 @@ import java.util.Date
 
 @Composable
 fun SmsTabScrollable(snapshot: CertSnapshot?, initialAddress: String, onAddressConsumed: () -> Unit,
-    onCheckText: (String) -> Unit, amber: Color, model: SmsViewModel = viewModel()) {
+    onCheckText: (String) -> Unit, amber: Color, model: SmsViewModel = viewModel(),
+    onConversationChanged: (Boolean) -> Unit = {}) {
     val state by model.state.collectAsStateWithLifecycle()
+    val metadata by model.metadata.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     var address by rememberSaveable { mutableStateOf("") }
-    var draft by rememberSaveable { mutableStateOf("") }
+    val draftKey = state.selectedThread?.toString() ?: "new"
+    val storedDraft = metadata.drafts[draftKey] ?: SmsDraft()
+    val draft = storedDraft.body
+    val recipient = if (state.selectedThread == null) storedDraft.address else address
     var query by rememberSaveable { mutableStateOf("") }
     var unreadOnly by rememberSaveable { mutableStateOf(false) }
-    var drafts by rememberSaveable { mutableStateOf(mapOf<String, String>()) }
+    var pinsOnly by rememberSaveable { mutableStateOf(false) }
     var composing by rememberSaveable { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
-    var accepted by rememberSaveable { mutableIntStateOf(state.sendAccepted) }
+    var pendingRecipient by rememberSaveable { mutableStateOf<String?>(null) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { model.reload() }
     DisposableEffect(owner) {
@@ -57,30 +64,41 @@ fun SmsTabScrollable(snapshot: CertSnapshot?, initialAddress: String, onAddressC
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(5000) } }
-    LaunchedEffect(initialAddress) {
-        if (initialAddress.isNotBlank()) { address = initialAddress; composing = true; model.select(null); onAddressConsumed() }
-    }
-    LaunchedEffect(state.sendAccepted) {
-        if (state.sendAccepted > accepted) { draft = ""; accepted = state.sendAccepted }
-    }
-    fun backToInbox() {
-        drafts = drafts + ((state.selectedThread?.toString() ?: "new") to draft)
-        draft = drafts["new"].orEmpty(); address = ""; model.select(null); composing = false
-    }
-    BackHandler(state.selectedThread != null || composing) { backToInbox() }
-    val unread = remember(state.messages) { state.messages.filter { it.incoming && !it.read }.map { it.thread }.toSet() }
-    fun contactName(number: String) = state.contacts[PhoneNumbers.parse(number)?.e164 ?: number] ?: number
-    val threads = remember(state.messages, query, unreadOnly, state.contacts) {
-        state.messages.groupBy { it.thread }.values.map { it.first() }.filter {
-            (!unreadOnly || it.thread in unread) && (query.isBlank() || contactName(it.address).contains(query, true) || it.address.contains(query, true) || it.body.contains(query, true))
+    LaunchedEffect(initialAddress, metadata.ready) {
+        if (initialAddress.isNotBlank() && metadata.ready) {
+            // A new recipient must not inherit another person's unfinished message.
+            val previous = metadata.drafts["new"] ?: SmsDraft()
+            if (previous.body.isBlank() || PhoneNumbers.parse(previous.address)?.e164 == PhoneNumbers.parse(initialAddress)?.e164) {
+                model.draft("new", previous.copy(address = initialAddress)); composing = true; model.select(null)
+            } else { pendingRecipient = initialAddress }
+            onAddressConsumed()
         }
     }
+    fun backToInbox() {
+        address = ""; model.select(null); composing = false
+    }
+    BackHandler(state.selectedThread != null || composing) { backToInbox() }
+    pendingRecipient?.let { target -> AlertDialog(onDismissRequest = { pendingRecipient = null },
+        title = { Text("Masz niedokończony SMS") },
+        text = { Text("Szkic do ${metadata.drafts["new"]?.address.orEmpty()} pozostaje na telefonie. Rozpoczęcie nowej wiadomości do $target zastąpi ten szkic.") },
+        confirmButton = { TextButton(onClick = { model.draft("new", SmsDraft(target)); model.select(null); composing = true; pendingRecipient = null }) { Text("Zastąp szkic") } },
+        dismissButton = { TextButton(onClick = { pendingRecipient = null }) { Text("Zachowaj szkic") } }) }
+    val unread = remember(state.messages) { state.messages.filter { it.incoming && !it.read }.map { it.thread }.toSet() }
+    fun contactName(number: String) = state.contacts[PhoneNumbers.parse(number)?.e164 ?: number] ?: number
+    val threads = remember(state.messages, query, unreadOnly, pinsOnly, state.contacts, metadata.pins) {
+        visibleThreads(state.messages, query, unreadOnly, pinsOnly, metadata.pins, state.contacts)
+    }
     if (confirm) AlertDialog(onDismissRequest = { confirm = false }, title = { Text("Wyślij SMS?") },
-        text = { Text("Do: $address\n\n$draft\n\nWysyłka przez domyślną kartę SIM. Dłuższy tekst może zostać podzielony na kilka płatnych SMS-ów według taryfy operatora.") },
-        confirmButton = { TextButton(onClick = { confirm = false; model.send(address, draft) }) { Text("Wyślij przez operatora") } },
+        text = { Text("Do: $recipient\n\n$draft\n\nWysyłka przez domyślną kartę SIM. Dłuższy tekst może zostać podzielony na kilka płatnych SMS-ów według taryfy operatora.") },
+        confirmButton = { TextButton(onClick = { confirm = false; model.send(recipient, draft, draftKey) }) { Text("Wyślij przez operatora") } },
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("Wróć do edycji") } })
     var settings by remember { mutableStateOf(false) }
     val conversationOpen = composing || state.selectedThread != null
+    val conversationCallback by rememberUpdatedState(onConversationChanged)
+    DisposableEffect(conversationOpen) {
+        conversationCallback(conversationOpen)
+        onDispose { conversationCallback(false) }
+    }
     fun requestInbox() = permissions.launch(buildList {
         add(Manifest.permission.READ_SMS); add(Manifest.permission.RECEIVE_SMS)
         if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
@@ -99,17 +117,22 @@ fun SmsTabScrollable(snapshot: CertSnapshot?, initialAddress: String, onAddressC
             Text(if (conversationOpen) "${if (state.selectedThread == null) "Nowy SMS" else contactName(address)}" else "Wiadomości",
                 style = if (conversationOpen) MaterialTheme.typography.titleLarge else MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.Bold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (conversationOpen && PhoneNumbers.parse(recipient) != null) IconButton(onClick = {
+                com.example.calling.DefaultPhone.openDialer(context, recipient)
+            }) { Icon(androidx.compose.material.icons.Icons.Outlined.Call, "Otwórz numer w telefonie") }
             IconButton(onClick = { settings = true }) { Icon(androidx.compose.material.icons.Icons.Outlined.MoreHoriz, "Ustawienia wiadomości") }
             if (!conversationOpen) IconButton(onClick = model::reload, modifier = Modifier.testTag("sms_refresh")) { Icon(androidx.compose.material.icons.Icons.Outlined.Refresh, "Odśwież") }
         }
         state.error?.let { Text(it, color = amber, modifier = Modifier.testTag("sms_error"), style = MaterialTheme.typography.bodySmall) }
+        metadata.error?.let { Text(it, color = amber, style = MaterialTheme.typography.bodySmall) }
         if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (conversationOpen) {
-            if (state.selectedThread == null) OutlinedTextField(address, { address = it.take(40) }, placeholder = { Text("Do: numer telefonu") }, singleLine = true,
+            if (state.selectedThread == null) OutlinedTextField(recipient, { model.draft(draftKey, SmsDraft(it.take(40), draft)) }, placeholder = { Text("Do: numer telefonu") }, singleLine = true,
+                enabled = metadata.ready && !state.sending,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth().testTag("sms_address"))
             LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("sms_list"), reverseLayout = true, verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
-                items(state.sends.filter { it.address == PhoneNumbers.parse(address)?.e164 }, key = { "send_${it.id}" }) { send ->
+                items(state.sends.filter { it.address == PhoneNumbers.parse(recipient)?.e164 }, key = { "send_${it.id}" }) { send ->
                     Text(send.status(now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("sms_receipt"))
                 }
                 state.conversation.reversed().groupBy { java.time.Instant.ofEpochMilli(it.time).atZone(java.time.ZoneId.systemDefault()).toLocalDate() }.forEach { (date, messages) ->
@@ -123,62 +146,59 @@ fun SmsTabScrollable(snapshot: CertSnapshot?, initialAddress: String, onAddressC
                 }
                 if (state.conversation.isEmpty()) item {
                     Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ContactAvatar(address.ifBlank { "?" }, Modifier.size(64.dp))
+                        ContactAvatar(recipient.ifBlank { "?" }, Modifier.size(64.dp))
                         Text("Zacznij rozmowę", style = MaterialTheme.typography.titleLarge)
                         Text("Napisz pierwszą wiadomość poniżej.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
-            if (address.isNotBlank() && PhoneNumbers.parse(address) == null) Text("Do odpowiedzi potrzebny jest pełny numer telefonu.", color = amber, style = MaterialTheme.typography.bodySmall)
+            if (recipient.isNotBlank() && PhoneNumbers.parse(recipient) == null) Text("Do odpowiedzi potrzebny jest pełny numer telefonu.", color = amber, style = MaterialTheme.typography.bodySmall)
             Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .65f)) {
                 Row(Modifier.fillMaxWidth().padding(6.dp), verticalAlignment = androidx.compose.ui.Alignment.Bottom) {
-                    TextField(draft, { draft = it.take(2000) }, placeholder = { Text("Wiadomość SMS") }, minLines = 1, maxLines = 5,
+                    TextField(draft, { model.draft(draftKey, SmsDraft(recipient, it.take(2000))) }, placeholder = { Text("Wiadomość SMS") }, minLines = 1, maxLines = 5,
+                        enabled = metadata.ready && !state.sending,
                         modifier = Modifier.weight(1f).testTag("sms_body"),
                         colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
                             focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent))
                     FilledIconButton(onClick = {
                         if (SmsRepository(context).canSend()) confirm = true else permissions.launch(arrayOf(Manifest.permission.SEND_SMS))
-                    }, enabled = PhoneNumbers.parse(address) != null && draft.isNotBlank() && !state.sending,
+                    }, enabled = metadata.ready && PhoneNumbers.parse(recipient) != null && draft.isNotBlank() && !state.sending,
                         modifier = Modifier.size(48.dp).testTag("sms_send")) { Icon(androidx.compose.material.icons.Icons.AutoMirrored.Outlined.Send, "Wyślij SMS") }
                 }
             }
-            if (draft.isNotBlank()) TextButton(onClick = { onCheckText(draft) }, modifier = Modifier.height(28.dp), contentPadding = PaddingValues(0.dp)) { Text("Sprawdź przed wysłaniem", style = MaterialTheme.typography.labelMedium) }
+            if (draft.isNotBlank()) Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                TextButton(onClick = { onCheckText(draft) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) { Text("Sprawdź przed wysłaniem", style = MaterialTheme.typography.labelMedium) }
+                val parts = remember(draft) { android.telephony.SmsMessage.calculateLength(draft, false)[0] }
+                Text("$parts SMS · ${draft.length}/2000", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         } else {
-            TextField(query, { query = it.take(100) }, placeholder = { Text("Szukaj rozmowy") }, leadingIcon = { Icon(androidx.compose.material.icons.Icons.Outlined.Search, null) },
+            TextField(query, { query = it.take(100) }, placeholder = { Text("Szukaj rozmowy lub treści") }, leadingIcon = { Icon(androidx.compose.material.icons.Icons.Outlined.Search, null) },
                 singleLine = true, shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth(),
                 colors = TextFieldDefaults.colors(focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f),
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f), focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent))
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(Modifier.fillMaxSize().testTag("sms_list"), contentPadding = PaddingValues(bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (state.canRead) item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = !unreadOnly, onClick = { unreadOnly = false }, label = { Text("Wszystkie") })
-                        FilterChip(selected = unreadOnly, onClick = { unreadOnly = true }, label = { Text("Nieprzeczytane") })
+                    if (state.canRead) item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = !unreadOnly && !pinsOnly, onClick = { unreadOnly = false; pinsOnly = false }, label = { Text("Wszystkie") })
+                        FilterChip(selected = unreadOnly, onClick = { unreadOnly = true; pinsOnly = false }, label = { Text("Nieprzeczytane") })
+                        FilterChip(selected = pinsOnly, onClick = { pinsOnly = true; unreadOnly = false }, label = { Text("Przypięte") })
                     } }
                     if (!state.canRead) item { PermissionPanel("Twoje rozmowy, w jednym miejscu", "Włącz skrzynkę SMS. Wiadomości zostają na telefonie.", "Włącz wiadomości", { requestInbox() }, Modifier.testTag("sms_permissions")) }
                     if (state.canRead && threads.isEmpty() && !state.loading && state.error == null) item {
                         Column(Modifier.fillMaxWidth().padding(vertical = 56.dp), horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Icon(androidx.compose.material.icons.Icons.Outlined.Forum, null, modifier = Modifier.size(52.dp), tint = MaterialTheme.colorScheme.primary)
-                            Text(if (query.isBlank()) "Miejsce na Twoje rozmowy" else "Nie znaleziono rozmowy", style = MaterialTheme.typography.titleLarge)
+                            Text(if (query.isNotBlank()) "Brak wyników" else if (pinsOnly) "Brak przypiętych rozmów" else if (unreadOnly) "Wszystko przeczytane" else "Miejsce na Twoje rozmowy", style = MaterialTheme.typography.titleLarge)
                             Text("Nową wiadomość napiszesz przyciskiem poniżej.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     items(threads, key = { "thread_${it.thread}" }) { sms ->
-                        Surface(onClick = { address = sms.address; draft = drafts[sms.thread.toString()].orEmpty(); model.select(sms.thread) }, color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
-                            Row(Modifier.padding(vertical = 14.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                ContactAvatar(contactName(sms.address))
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                        Text(contactName(sms.address).ifBlank { "Nieznany nadawca" }, fontWeight = if (sms.thread in unread) FontWeight.Bold else FontWeight.Medium, maxLines = 1, modifier = Modifier.weight(1f))
-                                        Text(DateFormat.getDateInstance(DateFormat.SHORT).format(Date(sms.time)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    Text(sms.body, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
+                        SmsThreadRow(sms, contactName(sms.address), sms.thread in unread, sms.thread in metadata.pins,
+                            metadata.drafts[sms.thread.toString()]?.body.orEmpty(),
+                            onOpen = { address = sms.address; model.select(sms.thread) }, onPin = { model.togglePin(sms.thread) })
                     }
                     if (state.canRead && state.messages.size >= state.limit && state.limit < 5000) item { TextButton(onClick = model::loadMore) { Text("Starsze wiadomości") } }
                 }
-                ExtendedFloatingActionButton(onClick = { model.select(null); composing = true; address = ""; draft = drafts["new"].orEmpty() },
+                ExtendedFloatingActionButton(onClick = { model.select(null); composing = true; address = "" },
                     icon = { Icon(androidx.compose.material.icons.Icons.Outlined.Edit, null) }, text = { Text("Nowy SMS") },
                     modifier = Modifier.align(androidx.compose.ui.Alignment.BottomEnd).padding(bottom = 12.dp).testTag("sms_new"), containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary)

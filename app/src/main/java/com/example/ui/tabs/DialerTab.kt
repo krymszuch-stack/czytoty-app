@@ -51,7 +51,6 @@ import androidx.compose.ui.text.input.KeyboardType
 
 @Composable
 fun DialerTab(
-    model: PrototypeViewModel,
     blockedLookup: (String) -> Boolean,
     notesCount: Int,
     onEditNumber: (String) -> Unit,
@@ -63,6 +62,8 @@ fun DialerTab(
     val context = LocalContext.current
     var number by rememberSaveable { mutableStateOf("") }
     var contactFilter by rememberSaveable { mutableStateOf("") }
+    var recentFilter by rememberSaveable { mutableStateOf("") }
+    var missedOnly by rememberSaveable { mutableStateOf(false) }
     var historyTick by remember { mutableIntStateOf(0) }
     var callLogGranted by remember { mutableStateOf(DialerData.hasPermission(context, Manifest.permission.READ_CALL_LOG)) }
     var contactsGranted by remember { mutableStateOf(DialerData.hasPermission(context, Manifest.permission.READ_CONTACTS)) }
@@ -95,6 +96,10 @@ fun DialerTab(
     }
 
     var section by rememberSaveable { mutableIntStateOf(2) }
+    val visibleHistory = remember(history, recentFilter, missedOnly) { history.filter {
+        (!missedOnly || it.type == android.provider.CallLog.Calls.MISSED_TYPE) &&
+            (recentFilter.isBlank() || it.name.orEmpty().contains(recentFilter, true) || it.number.contains(recentFilter))
+    } }
     LaunchedEffect(initialNumber) { if (initialNumber != null) { number = initialNumber; section = 2; onNumberConsumed() } }
     val callPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val target = remember(number) { DialTarget.normalize(number) }
@@ -160,12 +165,21 @@ fun DialerTab(
                         { permissionLauncher.launch(arrayOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_CONTACTS)) }, Modifier.testTag("dial_permissions"))
                     else if (section == 1) OutlinedTextField(contactFilter, { contactFilter = it.take(60) }, placeholder = { Text("Szukaj kontaktu") },
                         leadingIcon = { Icon(Icons.Outlined.Search, null) }, shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth())
-                    else TextButton(onClick = { historyTick++ }) { Text("Odśwież ostatnie połączenia") }
+                    else Column {
+                        OutlinedTextField(recentFilter, { recentFilter = it.take(60) }, placeholder = { Text("Szukaj połączenia") },
+                            leadingIcon = { Icon(Icons.Outlined.Search, null) }, singleLine = true,
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth())
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(!missedOnly, { missedOnly = false }, label = { Text("Wszystkie") })
+                            FilterChip(missedOnly, { missedOnly = true }, label = { Text("Nieodebrane") })
+                            IconButton(onClick = { historyTick++ }) { Icon(Icons.Outlined.Refresh, "Odśwież połączenia") }
+                        }
+                    }
                 }
                 if (section == 0 && callLogGranted) {
-                    if (history.isEmpty()) item { Text("Tutaj pojawią się Twoje połączenia.", modifier = Modifier.padding(vertical = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    items(history.size) { index ->
-                        val entry = history[index]
+                    if (visibleHistory.isEmpty()) item { Text(if (missedOnly) "Brak nieodebranych połączeń." else if (recentFilter.isNotBlank()) "Brak pasujących połączeń." else "Tutaj pojawią się Twoje połączenia.", modifier = Modifier.padding(vertical = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    items(visibleHistory.size) { index ->
+                        val entry = visibleHistory[index]
                         val name = entry.name?.takeIf { it.isNotBlank() } ?: entry.number.ifBlank { "Numer prywatny" }
                         Surface(onClick = { number = entry.number; section = 2 }, color = Color.Transparent) {
                             Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -200,8 +214,9 @@ fun DialerTab(
 
 @Composable
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-private fun DialerKeypad(number: String, onChange: (String) -> Unit) {
+internal fun DialerKeypad(number: String, onChange: (String) -> Unit) {
     val haptics = LocalHapticFeedback.current
+    val hapticsEnabled = com.example.ui.theme.LocalAppearance.current.haptics
     val letters = listOf("", "ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ", "", "+", "")
     val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#")
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -215,8 +230,8 @@ private fun DialerKeypad(number: String, onChange: (String) -> Unit) {
                         color = if (pressed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .6f),
                         modifier = Modifier.size(76.dp).graphicsLayer { scaleX = scale; scaleY = scale }.testTag("dial_key_$key")
                             .combinedClickable(interactionSource = interaction, indication = null,
-                                onClick = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onChange(number + key) },
-                                onLongClick = if (key == "0") ({ haptics.performHapticFeedback(HapticFeedbackType.LongPress); onChange(number + "+") }) else null)) {
+                                onClick = { if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onChange(number + key) },
+                                onLongClick = if (key == "0") ({ if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.LongPress); onChange(number + "+") }) else null)) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                             Text(key, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Normal)
                             Text(letters[rowIndex * 3 + columnIndex], style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -231,5 +246,5 @@ private fun DialerKeypad(number: String, onChange: (String) -> Unit) {
 @Composable
 fun DialerTabScrollable(model: PrototypeViewModel, blockedLookup: (String) -> Boolean, notesCount: Int,
     onEditNumber: (String) -> Unit, onSmsNumber: (String) -> Unit, amber: Color, initialNumber: String? = null, onNumberConsumed: () -> Unit = {}) {
-    DialerTab(model, blockedLookup, notesCount, onEditNumber, onSmsNumber, amber, initialNumber, onNumberConsumed)
+    DialerTab(blockedLookup, notesCount, onEditNumber, onSmsNumber, amber, initialNumber, onNumberConsumed)
 }

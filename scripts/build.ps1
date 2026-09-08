@@ -1,4 +1,4 @@
-param([switch]$DeviceTests, [switch]$Clean)
+param([switch]$DeviceTests, [switch]$Clean, [switch]$UpdateLocks)
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 Push-Location -LiteralPath $taskRoot
@@ -33,6 +33,7 @@ try {
     }
     $taskArgs = @(':app:assembleDebug', ':app:testDebugUnitTest', ':app:lintDebug', '--console=plain')
     if ($DeviceTests) { $taskArgs += ':app:connectedDebugAndroidTest' }
+    if ($UpdateLocks) { $taskArgs += '--write-locks' }
     & .\gradlew.bat @taskArgs
     if ($LASTEXITCODE -ne 0) { throw "Gradle failed ($LASTEXITCODE)." }
     New-Item -ItemType Directory -Path artifacts -Force | Out-Null

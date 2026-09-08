@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
@@ -45,7 +46,11 @@ class InCallActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         volumeControlStream = AudioManager.STREAM_VOICE_CALL
-        setContent { MyApplicationTheme(darkTheme = true) {
+        setContent { MyApplicationTheme {
+            val dark = MaterialTheme.colorScheme.background.luminance() < .5f
+            SideEffect { enableEdgeToEdge(
+                statusBarStyle = if (dark) androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT) else androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+                navigationBarStyle = if (dark) androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT) else androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)) }
             val state by CallSession.state.collectAsStateWithLifecycle()
             val actualCall = state.calls.any { it.live }
             LaunchedEffect(actualCall) {
@@ -92,10 +97,10 @@ internal fun CallScreen(state: CallSessionState, initialDialpad: Boolean = false
             }
         }; if (state.audio.isEmpty()) Text("Android nie przekazał jeszcze dostępnych urządzeń audio.") } },
         confirmButton = { TextButton(onClick = { audioDialog = false }) { Text("Zamknij") } })
-    Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF25183F), Color(0xFF0A0A12), Color(0xFF11101C))))
+    Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surface)))
         .safeDrawingPadding().padding(horizontal = 24.dp, vertical = 16.dp).verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        Text("CzyToTy?", style = MaterialTheme.typography.titleMedium, color = Color(0xFFC49BFF))
+        Text("CzyToTy?", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
         if (call == null) {
             Spacer(Modifier.height(72.dp))
             Icon(Icons.Outlined.CallEnd, null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -138,7 +143,7 @@ internal fun CallScreen(state: CallSessionState, initialDialpad: Boolean = false
                                     digits = (digits + digit).takeLast(30)
                                     CallSession.tone(call.id, digit)
                                     scope.launch { delay(180); CallSession.tone(call.id, null) }
-                                }, enabled = call.state == Call.STATE_ACTIVE, shape = CircleShape, color = Color(0xFF272338), modifier = Modifier.size(62.dp)) {
+                                }, enabled = call.state == Call.STATE_ACTIVE, shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.size(62.dp)) {
                                     Box(contentAlignment = Alignment.Center) { Text(digit.toString(), style = MaterialTheme.typography.headlineSmall) }
                                 }
                             }
@@ -147,9 +152,9 @@ internal fun CallScreen(state: CallSessionState, initialDialpad: Boolean = false
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     CallControl(if (state.muted) "Wyciszony" else "Mikrofon", if (state.muted) Icons.Outlined.MicOff else Icons.Outlined.Mic,
-                        if (state.muted) Color(0xFFC49BFF) else Color(0xFF353044), CallSession::mute, "call_mute")
-                    CallControl("Dźwięk", Icons.Outlined.VolumeUp, Color(0xFF353044), { audioDialog = true }, "call_audio")
-                    CallControl("Klawiatura", Icons.Outlined.Dialpad, if (keypad) Color(0xFFC49BFF) else Color(0xFF353044), { keypad = !keypad }, "call_keypad")
+                        if (state.muted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, CallSession::mute, "call_mute")
+                    CallControl("Dźwięk", Icons.Outlined.VolumeUp, MaterialTheme.colorScheme.surfaceVariant, { audioDialog = true }, "call_audio")
+                    CallControl("Klawiatura", Icons.Outlined.Dialpad, if (keypad) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, { keypad = !keypad }, "call_keypad")
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     if (call.canHold) TextButton(onClick = { CallSession.hold(call.id) }) { Text(if (call.state == Call.STATE_HOLDING) "Wznów" else "Zawieś") }
@@ -166,7 +171,7 @@ internal fun CallScreen(state: CallSessionState, initialDialpad: Boolean = false
 private fun CallControl(label: String, icon: ImageVector, color: Color, onClick: () -> Unit, tag: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FilledIconButton(onClick = onClick, modifier = Modifier.size(70.dp).testTag(tag), colors = IconButtonDefaults.filledIconButtonColors(containerColor = color,
-            contentColor = if (color == Color(0xFF353044)) Color.White else Color(0xFF171321))) { Icon(icon, label, modifier = Modifier.size(28.dp)) }
+            contentColor = if (color.luminance() < .179f) Color.White else Color(0xFF171321))) { Icon(icon, label, modifier = Modifier.size(28.dp)) }
         Text(label, style = MaterialTheme.typography.labelMedium)
     }
 }
