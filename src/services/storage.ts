@@ -1,13 +1,23 @@
 import {
   Appearance,
+  BusinessEntity,
+  CallCluster,
   CallHistoryEntry,
   CertSnapshot,
+  ClusterSettings,
   DeviceContact,
   DeviceSms,
   PhoneNote,
+  RobocallSettings,
   ScreeningEvent,
-  SmsDraft
+  SmsDraft,
+  UserBusinessCard,
+  WangiriSettings
 } from '../types';
+import { DEFAULT_CLUSTER_SETTINGS } from '../utils/cluster';
+import { DEFAULT_WANGIRI_SETTINGS } from '../utils/wangiri';
+import { DEFAULT_ROBOCALL_SETTINGS } from '../utils/robocall';
+import { VERIFIED_SEED_DIRECTORY } from './directory';
 
 const STORAGE_KEYS = {
   PHONE_NOTES: 'czytoty_phone_notes',
@@ -19,7 +29,24 @@ const STORAGE_KEYS = {
   PINNED_THREADS: 'czytoty_pinned_threads',
   CALL_HISTORY: 'czytoty_call_history',
   CONTACTS: 'czytoty_contacts',
-  SMS_MESSAGES: 'czytoty_sms_messages'
+  SMS_MESSAGES: 'czytoty_sms_messages',
+  CLUSTERS: 'czytoty_call_clusters',
+  CLUSTER_SETTINGS: 'czytoty_cluster_settings',
+  USER_CARD: 'czytoty_user_card',
+  DIRECTORY: 'czytoty_business_directory',
+  WANGIRI_SETTINGS: 'czytoty_wangiri_settings',
+  ROBOCALL_SETTINGS: 'czytoty_robocall_settings'
+};
+
+const DEFAULT_USER_CARD: UserBusinessCard = {
+  fullName: 'Jan Kowalski',
+  phone: '+48 600 123 456',
+  avatarIcon: 'senior-m',
+  iceContactName: 'Anna Kowalska (Córka)',
+  iceContactPhone: '+48 601 234 567',
+  note: 'Grupa krwi: A Rh+, cukrzyca typu 2. W razie nagłego wypadku proszę natychmiast dzwonić do córki Anny.',
+  bloodType: 'A Rh+',
+  updatedAt: Date.now()
 };
 
 const DEFAULT_APPEARANCE: Appearance = {
@@ -41,15 +68,47 @@ const SEED_CONTACTS: DeviceContact[] = [
   { id: 'c5', name: 'Marek z Pracy', phone: '+48511444555' }
 ];
 
-// Seed realistic call history
+// Seed realistic call history with Wangiri ping-calls and Robocall campaigns
 const SEED_CALL_HISTORY: CallHistoryEntry[] = [
+  {
+    id: 'h_wangiri_1',
+    number: '+247555123',
+    name: null,
+    type: 3, // Missed (1-ring ping)
+    date: Date.now() - 1000 * 60 * 18, // 18 min ago
+    durationSec: 0
+  },
+  {
+    id: 'h_robo_2',
+    number: '+48221664128',
+    name: null,
+    type: 3, // Missed (Robocall DDI rotation)
+    date: Date.now() - 1000 * 60 * 28, // 28 min ago
+    durationSec: 0
+  },
   {
     id: 'h1',
     number: '+48601234567',
     name: 'Mama',
     type: 1, // Incoming
-    date: Date.now() - 1000 * 60 * 35, // 35 min ago
+    date: Date.now() - 1000 * 60 * 45, // 45 min ago
     durationSec: 142
+  },
+  {
+    id: 'h_robo_1',
+    number: '+48221664120',
+    name: null,
+    type: 1, // Incoming answered, dropped after 2s (AMD silent call)
+    date: Date.now() - 1000 * 60 * 55, // 55 min ago
+    durationSec: 2
+  },
+  {
+    id: 'h_wangiri_2',
+    number: '+223701234',
+    name: null,
+    type: 3, // Missed (Mali, optical camouflage for Warsaw 022)
+    date: Date.now() - 1000 * 60 * 110, // ~2h ago
+    durationSec: 0
   },
   {
     id: 'h2',
@@ -128,6 +187,26 @@ const SEED_SMS_MESSAGES: DeviceSms[] = [
     type: 2, // Sent
     read: true,
     incoming: false
+  },
+  {
+    id: 401,
+    thread: 4,
+    address: 'InP0st',
+    body: 'InP0st: Twoja paczka zostala wstrzymana z powodu bledu w adresie doreczenia. Zaktualizuj dane w ciagu 24h na: https://inpost-sledzenie-paczki.xyz',
+    time: Date.now() - 1000 * 60 * 42,
+    type: 1, // Inbox
+    read: false,
+    incoming: true
+  },
+  {
+    id: 501,
+    thread: 5,
+    address: 'AlIegro',
+    body: 'AlIegro: Wykryto nieautoryzowane logowanie z nowego urzadzenia Android. Jesli to nie Ty, natychmiast zabezpiecz konto pod adresem: https://allegro-weryfikacja-konta.info',
+    time: Date.now() - 1000 * 60 * 15,
+    type: 1, // Inbox
+    read: false,
+    incoming: true
   }
 ];
 
@@ -368,5 +447,130 @@ export const LocalStore = {
 
   saveCertSnapshot(snapshot: CertSnapshot): void {
     localStorage.setItem(STORAGE_KEYS.CERT_SNAPSHOT, JSON.stringify(snapshot));
+  },
+
+  getClusters(): CallCluster[] {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.CLUSTERS);
+      if (!data) {
+        const seedClusters: CallCluster[] = [
+          {
+            id: 'cluster_seed_1',
+            prefix: '+48901234',
+            mask: '+48 901 234 •••',
+            numbers: ['+48901234102', '+48901234189'],
+            callCount: 2,
+            firstSeen: Date.now() - 1000 * 60 * 35, // 35 min ago
+            lastSeen: Date.now() - 1000 * 60 * 15,  // 15 min ago (20 min interval!)
+            status: 'ACTIVE_QUARANTINE',
+            riskScore: 'HIGH',
+            reason: 'Wykryto rotację 2 numerów z centrali SIP w oknie 20 minut (schemat windykacji/telemarketingu).'
+          }
+        ];
+        localStorage.setItem(STORAGE_KEYS.CLUSTERS, JSON.stringify(seedClusters));
+        return seedClusters;
+      }
+      return JSON.parse(data);
+    } catch {
+      return [];
+    }
+  },
+
+  saveCluster(cluster: CallCluster): void {
+    const list = this.getClusters().filter(c => c.id !== cluster.id);
+    list.unshift(cluster);
+    localStorage.setItem(STORAGE_KEYS.CLUSTERS, JSON.stringify(list));
+  },
+
+  deleteCluster(id: string): void {
+    const list = this.getClusters().filter(c => c.id !== id);
+    localStorage.setItem(STORAGE_KEYS.CLUSTERS, JSON.stringify(list));
+  },
+
+  getClusterSettings(): ClusterSettings {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.CLUSTER_SETTINGS);
+      if (data) return { ...DEFAULT_CLUSTER_SETTINGS, ...JSON.parse(data) };
+    } catch {
+      // fallback
+    }
+    return DEFAULT_CLUSTER_SETTINGS;
+  },
+
+  saveClusterSettings(settings: ClusterSettings): void {
+    localStorage.setItem(STORAGE_KEYS.CLUSTER_SETTINGS, JSON.stringify(settings));
+  },
+
+  getUserCard(): UserBusinessCard {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.USER_CARD);
+      if (data) return { ...DEFAULT_USER_CARD, ...JSON.parse(data) };
+    } catch {
+      // fallback
+    }
+    return DEFAULT_USER_CARD;
+  },
+
+  saveUserCard(card: UserBusinessCard): void {
+    const updated = { ...card, updatedAt: Date.now() };
+    localStorage.setItem(STORAGE_KEYS.USER_CARD, JSON.stringify(updated));
+  },
+
+  getBusinessDirectory(): BusinessEntity[] {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.DIRECTORY);
+      if (!data) {
+        localStorage.setItem(STORAGE_KEYS.DIRECTORY, JSON.stringify(VERIFIED_SEED_DIRECTORY));
+        return VERIFIED_SEED_DIRECTORY;
+      }
+      return JSON.parse(data);
+    } catch {
+      return VERIFIED_SEED_DIRECTORY;
+    }
+  },
+
+  saveBusinessEntity(entity: BusinessEntity): void {
+    const list = this.getBusinessDirectory().filter(e => e.id !== entity.id);
+    list.unshift(entity);
+    localStorage.setItem(STORAGE_KEYS.DIRECTORY, JSON.stringify(list));
+  },
+
+  importBusinessEntity(entity: BusinessEntity): BusinessEntity {
+    const updatedEntity: BusinessEntity = {
+      ...entity,
+      importedAt: Date.now(),
+      verified: true
+    };
+    this.saveBusinessEntity(updatedEntity);
+    return updatedEntity;
+  },
+
+  getWangiriSettings(): WangiriSettings {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.WANGIRI_SETTINGS);
+      if (data) return { ...DEFAULT_WANGIRI_SETTINGS, ...JSON.parse(data) };
+    } catch {
+      // fallback
+    }
+    return DEFAULT_WANGIRI_SETTINGS;
+  },
+
+  saveWangiriSettings(settings: WangiriSettings): void {
+    localStorage.setItem(STORAGE_KEYS.WANGIRI_SETTINGS, JSON.stringify(settings));
+  },
+
+  getRobocallSettings(): RobocallSettings {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.ROBOCALL_SETTINGS);
+      if (data) return { ...DEFAULT_ROBOCALL_SETTINGS, ...JSON.parse(data) };
+    } catch {
+      // fallback
+    }
+    return DEFAULT_ROBOCALL_SETTINGS;
+  },
+
+  saveRobocallSettings(settings: RobocallSettings): void {
+    localStorage.setItem(STORAGE_KEYS.ROBOCALL_SETTINGS, JSON.stringify(settings));
   }
 };
+

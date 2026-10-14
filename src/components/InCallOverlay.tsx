@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Phone,
   PhoneOff,
@@ -8,10 +8,20 @@ import {
   Grid,
   Pause,
   Play,
-  Minimize2
+  Minimize2,
+  ShieldCheck,
+  ShieldAlert,
+  Bot,
+  Sparkles
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ContactAvatar } from './ContactAvatar';
+import { IvrStabilizerPanel } from './IvrStabilizerPanel';
+import { detectIvrHelpline } from '../services/dtmfStabilizer';
+import { ScamCorrelatorAlert } from './ScamCorrelatorAlert';
+import { evaluateScamCorrelation, generateBankScamSms } from '../utils/scamCorrelator';
+import { evaluateWangiriRisk } from '../utils/wangiri';
+import { analyzeRobocall } from '../utils/robocall';
 
 export function InCallOverlay() {
   const {
@@ -21,8 +31,15 @@ export function InCallOverlay() {
     endCall,
     holdCall,
     toggleMute,
+    setCallMuted,
     setAudioChoice,
-    sendDtmfTone
+    sendDtmfTone,
+    smsMessages,
+    appendDirectSms,
+    appearance,
+    userCard,
+    callHistory,
+    showNotice
   } = useApp();
 
   const [minimized, setMinimized] = useState(false);
@@ -30,6 +47,8 @@ export function InCallOverlay() {
   const [showAudioDialog, setShowAudioDialog] = useState(false);
   const [enteredDigits, setEnteredDigits] = useState('');
   const [timerSeconds, setTimerSeconds] = useState(0);
+  const [dismissedScamId, setDismissedScamId] = useState<string | null>(null);
+  const [sentSosAlert, setSentSosAlert] = useState(false);
 
   const activeCall =
     callSession.calls.find(c => c.state === 'RINGING') ||
@@ -96,8 +115,54 @@ export function InCallOverlay() {
     DISCONNECTED: 'Połączenie zakończone'
   };
 
+  const ivrDetection = detectIvrHelpline(activeCall.number, displayName);
+
+  // Korelator Scamu: fuzja aktywnego połączenia z przychodzącym SMS-em bankowym/BLIK
+  const scamAlert = useMemo(() => {
+    return evaluateScamCorrelation(activeCall, contacts, smsMessages);
+  }, [activeCall, contacts, smsMessages]);
+
+  // Tarcza Wangiri i Robocall Intelligence
+  const wangiriRisk = useMemo(() => {
+    if (!activeCall) return null;
+    return evaluateWangiriRisk(
+      activeCall.number,
+      timerSeconds,
+      2,
+      activeCall.state === 'RINGING'
+    );
+  }, [activeCall, timerSeconds]);
+
+  const roboAnalysis = useMemo(() => {
+    if (!activeCall) return null;
+    return analyzeRobocall(activeCall.number, callHistory, [], contacts);
+  }, [activeCall, callHistory, contacts]);
+
+  const isScamAlertVisible = Boolean(scamAlert && scamAlert.id !== dismissedScamId);
+
+  const handleSimulateScamSms = () => {
+    const fakeSms = generateBankScamSms('mBank');
+    appendDirectSms(fakeSms.address, fakeSms.body);
+    setDismissedScamId(null);
+  };
+
+  const isSeniorMode = Boolean(
+    appearance.seniorMode ||
+    appearance.largeText ||
+    userCard?.avatarIcon?.startsWith('senior')
+  );
+
+  const handleSeniorSos = () => {
+    const guardianPhone = userCard?.iceContactPhone || '+48601234567';
+    const durationMins = Math.max(1, Math.round(timerSeconds / 60));
+    const sosBody = `ALERT OPIEKUNA: Senior rozmawia teraz (${durationMins} min) z nieznanym numerem ${activeCall.number}. Sprawdź czy to nie próba wyłudzenia!`;
+    appendDirectSms(guardianPhone, sosBody);
+    setSentSosAlert(true);
+    showNotice('Wysłano ciche powiadomienie do Opiekuna (ICE). Pamiętaj: możesz się bez obaw rozłączyć!');
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-between bg-gradient-to-b from-[#231A45] via-[#0A0A12] to-[#131424] text-white p-6 safe-top safe-bottom animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-50 flex flex-col justify-between bg-gradient-to-b from-[#231A45] via-[#0A0A12] to-[#131424] text-white p-6 safe-top safe-bottom overflow-y-auto animate-in fade-in duration-300">
       {/* Top Bar with brand & minimize */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -116,7 +181,7 @@ export function InCallOverlay() {
       </div>
 
       {/* Main Info */}
-      <div className="flex flex-col items-center justify-center my-auto text-center space-y-4">
+      <div className="flex flex-col items-center justify-center my-auto text-center space-y-4 py-2">
         <span
           data-testid="call_state"
           className="text-sm font-medium text-purple-200/80 bg-purple-900/30 px-3 py-1 rounded-full border border-purple-500/20"
@@ -124,56 +189,154 @@ export function InCallOverlay() {
           {stateLabels[activeCall.state] || 'Połączenie'}
         </span>
 
-        <ContactAvatar name={displayName} size="xl" className="shadow-2xl ring-4 ring-[#7B4DFF]/20 my-2" />
-
-        <div>
-          <h2 className="text-2xl font-bold text-white tracking-tight">
-            {displayName}
-          </h2>
-          {contact && (
-            <p className="text-sm text-[#9499AD] mt-0.5">{activeCall.number}</p>
-          )}
-        </div>
-
-        {isActive && (
-          <p
-            data-testid="call_timer"
-            className="text-xl font-mono tracking-wider font-semibold text-[#8BE0BB]"
-          >
-            {formatTimer(timerSeconds)}
-          </p>
-        )}
-
-        {isHolding && (
-          <p className="text-sm text-[#FFD089] font-medium bg-[#805000]/20 px-3 py-1 rounded-full border border-[#FFD089]/30">
-            Rozmowa wstrzymana
-          </p>
-        )}
-
-        {isRinging && (
-          <div className="max-w-xs bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-200">
-            Wyświetlany numer nie potwierdza tożsamości rozmówcy.
+        {/* Wangiri Alert Chip */}
+        {wangiriRisk && wangiriRisk.isWangiri && (wangiriRisk.riskLevel === 'CRITICAL' || wangiriRisk.riskLevel === 'HIGH') && (
+          <div className="w-full max-w-sm p-3 rounded-2xl bg-gradient-to-r from-red-950/90 to-rose-950/90 border border-red-500/50 text-left space-y-1 shadow-lg animate-in fade-in">
+            <div className="flex items-center gap-1.5 text-red-300 font-extrabold text-xs uppercase tracking-wide">
+              <ShieldAlert className="w-4 h-4 text-red-400 shrink-0 animate-pulse" />
+              <span>Tarcza Wangiri: Zagrożenie Ping-Call {wangiriRisk.countryFlag}</span>
+            </div>
+            <p className="text-[11px] text-red-100/90 leading-tight">
+              {wangiriRisk.countryName} · Szacowana stawka oddzwonienia:{' '}
+              <span className="font-mono font-bold text-red-300">~{wangiriRisk.estimatedCostRange}</span>
+            </p>
           </div>
         )}
 
-        {/* DTMF Keypad View */}
-        {showKeypad && (
-          <div className="w-full max-w-xs bg-[#1A1B30]/90 backdrop-blur-md rounded-2xl p-4 border border-[#272540] my-4 animate-in slide-in-from-bottom duration-200">
-            <div className="h-8 flex items-center justify-center font-mono text-xl tracking-widest text-[#A875FF] mb-3">
-              {enteredDigits || 'Wpisz ton'}
+        {/* Robocall Intelligence Chip */}
+        {(!wangiriRisk || !wangiriRisk.isWangiri) && roboAnalysis && roboAnalysis.isRobocall && roboAnalysis.probabilityScore >= 60 && (
+          <div className="w-full max-w-sm p-2.5 rounded-2xl bg-[#1A1633]/85 border border-[#7B4DFF]/40 text-left space-y-0.5 shadow-md animate-in fade-in">
+            <div className="flex items-center gap-1.5 text-purple-200 font-extrabold text-xs uppercase tracking-wide">
+              <Bot className="w-4 h-4 text-[#A875FF] shrink-0" />
+              <span>Robocall Intelligence: {roboAnalysis.probabilityScore}% Bot</span>
             </div>
-            <div className="grid grid-cols-3 gap-2.5">
-              {['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].map(digit => (
+            <p className="text-[11px] text-[#C5C8D8] leading-tight">
+              {roboAnalysis.botType} · {roboAnalysis.carrierGuess}
+            </p>
+          </div>
+        )}
+
+        {/* 🚨 KORELATOR SCAMU: Krytyczny baner alarmowy (fuzja połączenia i SMS-a z kodem) */}
+        {isScamAlertVisible && scamAlert && (
+          <ScamCorrelatorAlert
+            alert={scamAlert}
+            onEndCall={() => endCall(activeCall.id)}
+            onMuteMic={() => setCallMuted(true)}
+            onDismiss={() => setDismissedScamId(scamAlert.id)}
+          />
+        )}
+
+        {showKeypad ? (
+          <div className="w-full flex flex-col items-center">
+            {/* Zwięzły nagłówek rozmówcy i stoper podczas otwartej klawiatury */}
+            <div className="flex items-center justify-between w-full max-w-sm px-2 mb-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <ContactAvatar name={displayName} size="sm" />
+                <div className="text-left truncate">
+                  <p className="text-xs font-bold text-white truncate">{displayName}</p>
+                  <p className="text-[10px] text-[#9499AD] truncate">{activeCall.number}</p>
+                </div>
+              </div>
+              {isActive && (
+                <span className="text-xs font-mono text-[#8BE0BB] font-semibold bg-[#8BE0BB]/10 px-2 py-0.5 rounded-full border border-[#8BE0BB]/20">
+                  {formatTimer(timerSeconds)}
+                </span>
+              )}
+            </div>
+
+            {/* Panel Stabilizatora IVR z bramką Auto-Mute i kolejkowaniem FIFO */}
+            <IvrStabilizerPanel
+              activeCallNumber={activeCall.number}
+              activeCallDisplayName={displayName}
+              isMuted={callSession.muted}
+              onSetMuted={setCallMuted}
+              onSendToneLog={(d) => sendDtmfTone(activeCall.id, d)}
+              enteredDigits={enteredDigits}
+              onDigitsChange={setEnteredDigits}
+            />
+          </div>
+        ) : (
+          <>
+            {!isScamAlertVisible && (
+              <ContactAvatar name={displayName} size="xl" className="shadow-2xl ring-4 ring-[#7B4DFF]/20 my-2" />
+            )}
+
+            <div>
+              <h2 className="text-2xl font-bold text-white tracking-tight">
+                {displayName}
+              </h2>
+              {contact && (
+                <p className="text-sm text-[#9499AD] mt-0.5">{activeCall.number}</p>
+              )}
+            </div>
+
+            {isActive && (
+              <p
+                data-testid="call_timer"
+                className="text-xl font-mono tracking-wider font-semibold text-[#8BE0BB]"
+              >
+                {formatTimer(timerSeconds)}
+              </p>
+            )}
+
+            {/* Tryb Seniora: Cichy SOS do bliskiego bez przerywania rozmowy */}
+            {isActive && isSeniorMode && (
+              <div className="w-full max-w-xs">
                 <button
-                  key={digit}
-                  onClick={() => handleDigit(digit)}
-                  className="py-3 rounded-xl bg-[#22233C] text-lg font-bold text-white hover:bg-[#7B4DFF]/30 active:scale-95 transition-all"
+                  onClick={handleSeniorSos}
+                  disabled={sentSosAlert}
+                  className={`w-full py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md ${
+                    sentSosAlert
+                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                      : 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/40 text-amber-200 active:scale-95'
+                  }`}
                 >
-                  {digit}
+                  <ShieldAlert className="w-4 h-4 text-amber-400" />
+                  <span>
+                    {sentSosAlert
+                      ? '✓ Wysłano ciche powiadomienie do Opiekuna (ICE)'
+                      : '🛡️ Poproś bliskiego o weryfikację (Cichy SOS)'}
+                  </span>
                 </button>
-              ))}
-            </div>
-          </div>
+              </div>
+            )}
+
+            {isActive && ivrDetection.isIvr && (
+              <button
+                onClick={() => setShowKeypad(true)}
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs hover:bg-emerald-500/25 transition-all shadow-md animate-pulse"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Wykryto infolinię · Otwórz klawiaturę IVR (AEC chronione)</span>
+              </button>
+            )}
+
+            {/* Szybki przycisk demonstracji Korelatora Scamu */}
+            {isActive && !isScamAlertVisible && (
+              <div className="pt-1">
+                <button
+                  onClick={handleSimulateScamSms}
+                  className="text-[11px] text-gray-400 hover:text-white px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 flex items-center gap-1.5 transition-colors border border-white/5"
+                  title="Symuluje przyjście fałszywego SMS-a z kodem BLIK/przelewu z banku podczas trwania rozmowy"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#A875FF]" />
+                  <span>⚡ Przetestuj Korelator Scamu (Symuluj atak SMS)</span>
+                </button>
+              </div>
+            )}
+
+            {isHolding && (
+              <p className="text-sm text-[#FFD089] font-medium bg-[#805000]/20 px-3 py-1 rounded-full border border-[#FFD089]/30">
+                Rozmowa wstrzymana
+              </p>
+            )}
+
+            {isRinging && (
+              <div className="max-w-xs bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-200">
+                Wyświetlany numer nie potwierdza tożsamości rozmówcy.
+              </div>
+            )}
+          </>
         )}
       </div>
 

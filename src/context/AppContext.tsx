@@ -4,28 +4,54 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   ReactNode
 } from 'react';
 import {
   Appearance,
+  BusinessEntity,
+  CallCluster,
   CallHistoryEntry,
   CallItem,
   CallSessionState,
   CallState,
   CertSnapshot,
   CloudNote,
+  ClusterMatchResult,
+  ClusterSettings,
+  ClusterStatus,
   DeviceContact,
   DeviceSms,
+  EmergencyService,
   MessageAnalysis,
   PhoneNote,
+  RobocallAnalysis,
+  RobocallCampaign,
+  RobocallSettings,
   ScreeningEvent,
   SmsDraft,
-  SmsSend
+  SmsSend,
+  UserBusinessCard,
+  WangiriRiskInfo,
+  WangiriSettings
 } from '../types';
 import { LocalStore } from '../services/storage';
 import { analyzeMessage, isSnapshotFresh } from '../utils/cert';
 import { normalizeDialTarget, parsePhone } from '../utils/phone';
+import { evaluateCallForCluster, DEFAULT_CLUSTER_SETTINGS } from '../utils/cluster';
+import {
+  evaluateWangiriRisk,
+  checkOutgoingWangiriRisk,
+  DEFAULT_WANGIRI_SETTINGS
+} from '../utils/wangiri';
+import {
+  analyzeRobocall,
+  aggregateRobocallCampaigns,
+  DEFAULT_ROBOCALL_SETTINGS
+} from '../utils/robocall';
 import { CloudRepository } from '../services/supabase';
+import { getEmergencyInfo, isEmergencyPrefix } from '../utils/emergency';
+import { searchDirectoryEntities } from '../services/directory';
 
 interface AppContextType {
   // Navigation
@@ -71,17 +97,44 @@ interface AppContextType {
   clearScreeningEvents: () => void;
   simulateIncomingCall: (phone: string) => void;
 
+  // Schematy i Klastry Rotacji
+  clusters: CallCluster[];
+  clusterSettings: ClusterSettings;
+  updateClusterSettings: (settings: ClusterSettings) => void;
+  updateClusterStatus: (id: string, status: ClusterStatus) => void;
+  deleteCluster: (id: string) => void;
+  evaluateCallCluster: (phone: string) => ClusterMatchResult;
+
+  // Tarcza Wangiri (One-Ring & Drop)
+  wangiriSettings: WangiriSettings;
+  updateWangiriSettings: (settings: Partial<WangiriSettings>) => void;
+  wangiriModalState: { isOpen: boolean; targetNumber: string; riskInfo: WangiriRiskInfo } | null;
+  proceedOutgoingCall: (targetNumber: string) => void;
+  blockAndDismissWangiri: (targetNumber: string) => void;
+  closeWangiriModal: () => void;
+  simulateWangiriPingCall: (targetNumber?: string) => void;
+
+  // Robocall Intelligence & Kampanie Call Center
+  robocallSettings: RobocallSettings;
+  updateRobocallSettings: (settings: Partial<RobocallSettings>) => void;
+  robocallCampaigns: RobocallCampaign[];
+  simulateRobocallBurst: () => void;
+
   // Phone & Calls
   callHistory: CallHistoryEntry[];
   contacts: DeviceContact[];
   callSession: CallSessionState;
   startCall: (number: string) => void;
+  triggerSmartArrowCall: (targetNumber: string, durationMs?: number) => void;
   answerCall: (id: string) => void;
   endCall: (id: string) => void;
   holdCall: (id: string) => void;
   toggleMute: () => void;
+  setCallMuted: (muted: boolean) => void;
   setAudioChoice: (id: string) => void;
   sendDtmfTone: (id: string, digit: string | null) => void;
+  lastEndedCallNumber: string | null;
+  setLastEndedCallNumber: (num: string | null) => void;
 
   // SMS
   smsMessages: DeviceSms[];
@@ -92,6 +145,7 @@ interface AppContextType {
   pinnedThreads: number[];
   togglePinThread: (threadId: number) => void;
   sendSms: (address: string, body: string, draftKey?: string) => Promise<string>;
+  appendDirectSms: (targetNumber: string, body: string, fromSim?: 'PRIVATE' | 'WORK') => void;
   sends: SmsSend[];
   isSendingSms: boolean;
   markThreadRead: (threadId: number) => void;
@@ -108,6 +162,22 @@ interface AppContextType {
   saveCloudNote: (note: PhoneNote) => Promise<void>;
   deleteCloudNote: (phone: string) => Promise<void>;
   restoreToLocal: (cloudNote: CloudNote) => void;
+
+  // Baza Firm i Usług (Smart Directory)
+  directory: BusinessEntity[];
+  searchDirectory: (query: string) => BusinessEntity[];
+  importDirectoryEntity: (entity: BusinessEntity) => BusinessEntity;
+  saveCustomBusinessEntity: (entity: Omit<BusinessEntity, 'id' | 'importedAt'>) => void;
+
+  // Numery Alarmowe i Służby Szybkiego Reagowania
+  getEmergencyDetails: (raw: string) => EmergencyService | null;
+  isEmergency: (raw: string) => boolean;
+
+  // Karta Użytkownika & Kontakt ICE
+  userCard: UserBusinessCard;
+  saveUserCard: (card: UserBusinessCard) => void;
+  callIceContact: () => void;
+  smsIceContact: () => void;
 
   // Toast / Notice
   notice: string | null;
@@ -254,10 +324,63 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showNotice('Wyczyszczono rejestr filtrowania.');
   };
 
+  // Schematy i Klastry Rotacji
+  const [clusters, setClusters] = useState<CallCluster[]>(() => LocalStore.getClusters());
+  const [clusterSettings, setClusterSettings] = useState<ClusterSettings>(() =>
+    LocalStore.getClusterSettings()
+  );
+
+  const updateClusterSettings = (newSettings: ClusterSettings) => {
+    setClusterSettings(newSettings);
+    LocalStore.saveClusterSettings(newSettings);
+    showNotice('Zaktualizowano parametry wykrywania schematów.');
+  };
+
+  const updateClusterStatus = (id: string, status: ClusterStatus) => {
+    const list = LocalStore.getClusters();
+    const target = list.find(c => c.id === id);
+    if (target) {
+      const updated = { ...target, status };
+      LocalStore.saveCluster(updated);
+      setClusters(LocalStore.getClusters());
+      showNotice(
+        status === 'BLOCKED_PERMANENT'
+          ? 'Pula została trwale zablokowana.'
+          : status === 'ALLOWED_WHITELIST'
+          ? 'Pula została oznaczona jako zaufana.'
+          : 'Pula pozostaje w kwarantannie.'
+      );
+    }
+  };
+
+  const deleteCluster = (id: string) => {
+    LocalStore.deleteCluster(id);
+    setClusters(LocalStore.getClusters());
+    showNotice('Usunięto schemat klastra.');
+  };
+
   // Contacts & History
   const [contacts] = useState<DeviceContact[]>(() => LocalStore.getContacts());
   const [callHistory, setCallHistory] = useState<CallHistoryEntry[]>(() =>
     LocalStore.getCallHistory()
+  );
+
+  const evaluateCallCluster = useCallback(
+    (phone: string): ClusterMatchResult => {
+      const evalResult = evaluateCallForCluster(
+        phone,
+        clusters,
+        callHistory,
+        contacts,
+        clusterSettings
+      );
+      if (evalResult.updatedCluster) {
+        LocalStore.saveCluster(evalResult.updatedCluster);
+        setClusters(LocalStore.getClusters());
+      }
+      return evalResult.result;
+    },
+    [clusters, callHistory, contacts, clusterSettings]
   );
 
   // In-Call Session
@@ -273,16 +396,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
     canAdd: true,
     error: null
   });
+  const [lastEndedCallNumber, setLastEndedCallNumber] = useState<string | null>(null);
 
-  const startCall = (number: string) => {
-    const target = normalizeDialTarget(number);
-    if (!target) {
-      showNotice('Nieprawidłowy numer telefonu.');
-      return;
-    }
+  // Wangiri & Robocall State
+  const [wangiriSettings, setWangiriSettings] = useState<WangiriSettings>(() =>
+    LocalStore.getWangiriSettings()
+  );
+  const [robocallSettings, setRobocallSettings] = useState<RobocallSettings>(() =>
+    LocalStore.getRobocallSettings()
+  );
+  const [wangiriModalState, setWangiriModalState] = useState<{
+    isOpen: boolean;
+    targetNumber: string;
+    riskInfo: WangiriRiskInfo;
+  } | null>(null);
 
-    const parsed = parsePhone(target);
-    const lookupNumber = parsed?.e164 || target;
+  const robocallCampaigns = useMemo(() => {
+    return aggregateRobocallCampaigns(callHistory, screeningEvents);
+  }, [callHistory, screeningEvents]);
+
+  const updateWangiriSettings = (partial: Partial<WangiriSettings>) => {
+    setWangiriSettings(prev => {
+      const updated = { ...prev, ...partial };
+      LocalStore.saveWangiriSettings(updated);
+      return updated;
+    });
+    showNotice('Zaktualizowano ustawienia Tarczy Wangiri.');
+  };
+
+  const updateRobocallSettings = (partial: Partial<RobocallSettings>) => {
+    setRobocallSettings(prev => {
+      const updated = { ...prev, ...partial };
+      LocalStore.saveRobocallSettings(updated);
+      return updated;
+    });
+    showNotice('Zaktualizowano parametry Robocall Intelligence.');
+  };
+
+  const closeWangiriModal = () => {
+    setWangiriModalState(null);
+  };
+
+  const blockAndDismissWangiri = (targetNumber: string) => {
+    const parsed = parsePhone(targetNumber);
+    const e164 = parsed?.e164 || targetNumber;
+    LocalStore.saveNote({
+      phone: e164,
+      label: 'Oszustwo Wangiri (Ping-Call)',
+      note: 'Zablokowano przez Tarczę Wangiri przed kosztownym oddzwonieniem',
+      blocked: true
+    });
+    setNotes(LocalStore.getNotes());
+    LocalStore.recordScreeningEvent(e164, true);
+    setScreeningEvents(LocalStore.getScreeningEvents());
+    setWangiriModalState(null);
+    showNotice('Tarcza Wangiri: Zablokowano numer i ochroniono portfel przed kosztami!');
+  };
+
+  const executeCallConnect = (lookupNumber: string) => {
     const isBlockedNum = LocalStore.isBlocked(lookupNumber);
 
     if (isBlockedNum && protectionEnabled) {
@@ -340,16 +511,129 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }, 2000);
   };
 
+  const proceedOutgoingCall = (targetNumber: string) => {
+    setWangiriModalState(null);
+    executeCallConnect(targetNumber);
+  };
+
+  const startCall = (number: string) => {
+    const target = normalizeDialTarget(number);
+    if (!target) {
+      showNotice('Nieprawidłowy numer telefonu.');
+      return;
+    }
+
+    const parsed = parsePhone(target);
+    const lookupNumber = parsed?.e164 || target;
+
+    // Call-Back Interception by Wangiri Shield
+    if (wangiriSettings.shieldEnabled && wangiriSettings.interceptOutgoingCall) {
+      const risk = checkOutgoingWangiriRisk(lookupNumber);
+      if (risk) {
+        setWangiriSettings(prev => {
+          const updated = {
+            ...prev,
+            interceptedAttemptsCount: (prev.interceptedAttemptsCount || 0) + 1
+          };
+          LocalStore.saveWangiriSettings(updated);
+          return updated;
+        });
+        setWangiriModalState({
+          isOpen: true,
+          targetNumber: lookupNumber,
+          riskInfo: risk
+        });
+        return;
+      }
+    }
+
+    executeCallConnect(lookupNumber);
+  };
+
+  const simulateWangiriPingCall = (targetNum?: string) => {
+    const num = targetNum || '+247555891';
+    LocalStore.addCallHistory({
+      number: num,
+      name: null,
+      type: 3, // Missed (1-ring ping)
+      date: Date.now(),
+      durationSec: 0
+    });
+    setCallHistory(LocalStore.getCallHistory());
+    showNotice(`Tarcza Wangiri: Zarejestrowano 1-sekundowy ping z ${num} (Wyspa Wniebowstąpienia). Trafił do nieodebranych.`);
+  };
+
+  const simulateRobocallBurst = () => {
+    const burstDdi = ['+48221664133', '+48221664137', '+48221664142'];
+    burstDdi.forEach((n, idx) => {
+      setTimeout(() => {
+        LocalStore.addCallHistory({
+          number: n,
+          name: null,
+          type: 3,
+          date: Date.now() - idx * 25000,
+          durationSec: 0
+        });
+        setCallHistory(LocalStore.getCallHistory());
+      }, idx * 500);
+    });
+    showNotice('Robocall Intelligence: Zasymulowano burst dialera predykcyjnego (3 połączenia DDI ze wspólnym pniem).');
+  };
+
   const simulateIncomingCall = (phone: string) => {
     const parsed = parsePhone(phone);
     const lookupNumber = parsed?.e164 || phone;
-    const isBlockedNum = LocalStore.isBlocked(lookupNumber);
 
+    // 1. Wangiri Shield check
+    if (wangiriSettings.shieldEnabled) {
+      const wRisk = evaluateWangiriRisk(lookupNumber, 0, 1.5, true);
+      if (wRisk.isWangiri && wangiriSettings.autoBlockHighRiskPing && (wRisk.riskLevel === 'CRITICAL' || wRisk.riskLevel === 'HIGH')) {
+        LocalStore.recordScreeningEvent(lookupNumber, true);
+        setScreeningEvents(LocalStore.getScreeningEvents());
+        showNotice(`Tarcza Wangiri: Zablokowano 1-sekundowy ping z ${wRisk.countryName} (${wRisk.estimatedCostRange})`);
+        return;
+      }
+    }
+
+    // 2. Robocall Intelligence check
+    if (robocallSettings.enabled) {
+      const roboAnalysis = analyzeRobocall(lookupNumber, callHistory, screeningEvents, contacts);
+      if (roboAnalysis.isRobocall && roboAnalysis.probabilityScore >= robocallSettings.minScoreToBlock) {
+        if (robocallSettings.action === 'REJECT') {
+          LocalStore.recordScreeningEvent(lookupNumber, true);
+          setScreeningEvents(LocalStore.getScreeningEvents());
+          showNotice(`Robocall Intelligence: Odrzucono bota telemarketingowego (${roboAnalysis.botType} - ${roboAnalysis.probabilityScore}%)`);
+          return;
+        } else if (robocallSettings.action === 'SILENCE') {
+          showNotice(`Robocall Intelligence: Wyciszono dzwonek bota (${roboAnalysis.probabilityScore}% prawdopodobieństwa)`);
+        } else {
+          showNotice(`Robocall Intelligence: Wykryto prawdopodobny automat (${roboAnalysis.probabilityScore}%)`);
+        }
+      }
+    }
+
+    // 3. Check pattern & rotation cluster detection
+    const clusterEval = evaluateCallCluster(lookupNumber);
+    if (clusterEval.shouldBlock && protectionEnabled) {
+      LocalStore.recordScreeningEvent(lookupNumber, true);
+      setScreeningEvents(LocalStore.getScreeningEvents());
+      showNotice(
+        `Filtrowanie schematów: odrzucono połączenie (${clusterEval.alertMessage || 'Pula rotacyjna'})`
+      );
+      return;
+    }
+
+    // 4. Check individual blocklist
+    const isBlockedNum = LocalStore.isBlocked(lookupNumber);
     if (isBlockedNum && protectionEnabled) {
       LocalStore.recordScreeningEvent(lookupNumber, true);
       setScreeningEvents(LocalStore.getScreeningEvents());
       showNotice(`Filtrowanie: odrzucono połączenie od ${lookupNumber} (Twoja lista blokad).`);
       return;
+    }
+
+    if (clusterEval.isMatch && clusterEval.alertMessage) {
+      showNotice(clusterEval.alertMessage);
     }
 
     LocalStore.recordScreeningEvent(lookupNumber, false);
@@ -398,6 +682,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
       setCallHistory(LocalStore.getCallHistory());
     }
+
+    if (call) {
+      const isKnown = contacts.some(c => {
+        const cleanC = c.phone.replace(/\D/g, '');
+        const cleanCall = call.number.replace(/\D/g, '');
+        return cleanC && cleanCall && (cleanC.endsWith(cleanCall) || cleanCall.endsWith(cleanC));
+      });
+      if (!isKnown && call.number.replace(/\D/g, '').length >= 4) {
+        setLastEndedCallNumber(call.number);
+      }
+    }
+
     setCallSession(prev => ({
       ...prev,
       calls: prev.calls.map(c =>
@@ -411,6 +707,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }));
     }, 600);
   };
+
+  const triggerSmartArrowCall = useCallback((targetNumber: string, durationMs = 2500) => {
+    const callId = `call_${Date.now()}`;
+    const newCall: CallItem = {
+      id: callId,
+      number: targetNumber,
+      state: 'RINGING',
+      connectedAt: 0,
+      canHold: true,
+      canMerge: false,
+      conference: false,
+      accountChoices: []
+    };
+
+    setCallSession(prev => ({
+      ...prev,
+      calls: [...prev.calls.filter(c => c.state !== 'DISCONNECTED'), newCall]
+    }));
+
+    setTimeout(() => {
+      endCall(callId);
+    }, durationMs);
+  }, []);
 
   const holdCall = (id: string) => {
     setCallSession(prev => ({
@@ -429,6 +748,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const toggleMute = () => {
     setCallSession(prev => ({ ...prev, muted: !prev.muted }));
+  };
+
+  const setCallMuted = (muted: boolean) => {
+    setCallSession(prev => ({ ...prev, muted }));
   };
 
   const setAudioChoice = (id: string) => {
@@ -533,6 +856,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showNotice('Operator potwierdził wysłanie wiadomości SMS.');
     return sendId;
   };
+
+  const appendDirectSms = useCallback(
+    (targetNumber: string, body: string, fromSim: 'PRIVATE' | 'WORK' = 'PRIVATE') => {
+      const cleanTarget = targetNumber.replace(/\s+/g, '');
+      const existing = smsMessages.find(m => m.address.replace(/\s+/g, '') === cleanTarget);
+      const threadId = existing ? existing.thread : Date.now();
+
+      LocalStore.addSmsMessage({
+        thread: threadId,
+        address: cleanTarget,
+        body,
+        time: Date.now(),
+        type: 2, // Sent
+        read: true,
+        incoming: false
+      });
+
+      setSmsMessages(LocalStore.getSmsMessages());
+    },
+    [smsMessages]
+  );
 
   // Cloud / Supabase
   const [cloudStatus, setCloudStatus] = useState<string>('Nie sprawdzono połączenia');
@@ -671,6 +1015,66 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showNotice('Skopiowano notatkę na urządzenie.');
   };
 
+  // Karta Użytkownika & Kontakt ICE
+  const [userCard, setUserCardState] = useState<UserBusinessCard>(() => LocalStore.getUserCard());
+  const saveUserCard = useCallback((card: UserBusinessCard) => {
+    LocalStore.saveUserCard(card);
+    setUserCardState({ ...card, updatedAt: Date.now() });
+    showNotice('Zapisano dane wizytówki i kontaktu ICE.');
+  }, [showNotice]);
+
+  const callIceContact = useCallback(() => {
+    if (!userCard.iceContactPhone) {
+      showNotice('Brak skonfigurowanego numeru ICE w wizytówce.');
+      return;
+    }
+    startCall(userCard.iceContactPhone);
+  }, [userCard.iceContactPhone, startCall, showNotice]);
+
+  const smsIceContact = useCallback(() => {
+    if (!userCard.iceContactPhone) {
+      showNotice('Brak skonfigurowanego numeru ICE w wizytówce.');
+      return;
+    }
+    setSmsPrefill(userCard.iceContactPhone);
+    setActiveTab(1);
+  }, [userCard.iceContactPhone, setSmsPrefill, setActiveTab, showNotice]);
+
+  // Baza Firm i Usług (Smart Directory)
+  const [directory, setDirectory] = useState<BusinessEntity[]>(() => LocalStore.getBusinessDirectory());
+
+  const searchDirectory = useCallback((query: string) => {
+    return searchDirectoryEntities(query, directory);
+  }, [directory]);
+
+  const importDirectoryEntity = useCallback((entity: BusinessEntity): BusinessEntity => {
+    const imported = LocalStore.importBusinessEntity(entity);
+    setDirectory(LocalStore.getBusinessDirectory());
+    showNotice(`Pobrano i zapisano wizytówkę do bazy: ${entity.name}`);
+    return imported;
+  }, [showNotice]);
+
+  const saveCustomBusinessEntity = useCallback((entity: Omit<BusinessEntity, 'id' | 'importedAt'>) => {
+    const newEnt: BusinessEntity = {
+      ...entity,
+      id: `biz_custom_${Date.now()}`,
+      importedAt: Date.now(),
+      source: 'USER_IMPORT'
+    };
+    LocalStore.saveBusinessEntity(newEnt);
+    setDirectory(LocalStore.getBusinessDirectory());
+    showNotice(`Zapisano do bazy firm: ${newEnt.name}`);
+  }, [showNotice]);
+
+  // Numery Alarmowe
+  const getEmergencyDetails = useCallback((raw: string) => {
+    return getEmergencyInfo(raw);
+  }, []);
+
+  const isEmergency = useCallback((raw: string) => {
+    return isEmergencyPrefix(raw);
+  }, []);
+
   return (
     <AppContext.Provider
       value={{
@@ -705,16 +1109,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
         screeningEvents,
         clearScreeningEvents,
         simulateIncomingCall,
+        clusters,
+        clusterSettings,
+        updateClusterSettings,
+        updateClusterStatus,
+        deleteCluster,
+        evaluateCallCluster,
+        wangiriSettings,
+        updateWangiriSettings,
+        wangiriModalState,
+        proceedOutgoingCall,
+        blockAndDismissWangiri,
+        closeWangiriModal,
+        simulateWangiriPingCall,
+        robocallSettings,
+        updateRobocallSettings,
+        robocallCampaigns,
+        simulateRobocallBurst,
         callHistory,
         contacts,
         callSession,
         startCall,
+        triggerSmartArrowCall,
         answerCall,
         endCall,
         holdCall,
         toggleMute,
+        setCallMuted,
         setAudioChoice,
         sendDtmfTone,
+        lastEndedCallNumber,
+        setLastEndedCallNumber,
         smsMessages,
         selectedThread,
         setSelectedThread,
@@ -723,6 +1148,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         pinnedThreads,
         togglePinThread,
         sendSms,
+        appendDirectSms,
         sends,
         isSendingSms,
         markThreadRead,
@@ -737,6 +1163,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         saveCloudNote,
         deleteCloudNote,
         restoreToLocal,
+        directory,
+        searchDirectory,
+        importDirectoryEntity,
+        saveCustomBusinessEntity,
+        getEmergencyDetails,
+        isEmergency,
+        userCard,
+        saveUserCard,
+        callIceContact,
+        smsIceContact,
         notice,
         showNotice,
         dismissNotice

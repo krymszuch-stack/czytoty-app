@@ -127,6 +127,25 @@ export function AppearanceSheet() {
 
           {/* Switches */}
           <div className="space-y-4 pt-1 border-t border-[#272540]">
+            <label className="flex items-center justify-between cursor-pointer p-2.5 rounded-xl bg-purple-950/30 border border-purple-500/30">
+              <div className="pr-2">
+                <span className="text-sm font-bold text-white block">Tryb Seniora (Duża czcionka & Cichy SOS)</span>
+                <span className="text-[11px] text-purple-300 block">Większe litery oraz przycisk cichej weryfikacji przez opiekuna</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={Boolean(appearance.seniorMode)}
+                onChange={e =>
+                  updateAppearance({
+                    ...appearance,
+                    seniorMode: e.target.checked,
+                    largeText: e.target.checked ? true : appearance.largeText
+                  })
+                }
+                className="w-5 h-5 accent-[#7B4DFF] rounded shrink-0"
+              />
+            </label>
+
             <label className="flex items-center justify-between cursor-pointer">
               <span className="text-sm text-white/90">Większy tekst wiadomości</span>
               <input

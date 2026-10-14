@@ -18,6 +18,254 @@ import { parsePhone } from '../utils/phone';
 import { analyzeMessage } from '../utils/cert';
 import { DeviceSms, SmsDraft } from '../types';
 
+// ==========================================
+// ANTY-HOMOGRAF / ANTY-SPOOFING (SMS SENDER ID)
+// ==========================================
+
+export interface ProtectedBrandItem {
+  name: string;
+  category: 'bank' | 'courier' | 'gov' | 'telecom' | 'marketplace';
+}
+
+/**
+ * Lista chronionych nazw marek (banki, kurierzy, GOV.PL, e-commerce)
+ */
+export const PROTECTED_BRANDS_REGISTRY: ProtectedBrandItem[] = [
+  // Banki
+  { name: 'mBank', category: 'bank' },
+  { name: 'PKO BP', category: 'bank' },
+  { name: 'Santander', category: 'bank' },
+  { name: 'ING Bank', category: 'bank' },
+  { name: 'Bank Millennium', category: 'bank' },
+  { name: 'Pekao', category: 'bank' },
+  { name: 'Alior Bank', category: 'bank' },
+  { name: 'BNP Paribas', category: 'bank' },
+  { name: 'Credit Agricole', category: 'bank' },
+  { name: 'BLIK', category: 'bank' },
+  // Kurierzy
+  { name: 'InPost', category: 'courier' },
+  { name: 'DPD', category: 'courier' },
+  { name: 'DHL', category: 'courier' },
+  { name: 'Poczta Polska', category: 'courier' },
+  { name: 'GLS', category: 'courier' },
+  { name: 'FedEx', category: 'courier' },
+  // GOV.PL & Urzędy
+  { name: 'GOV.PL', category: 'gov' },
+  { name: 'mObywatel', category: 'gov' },
+  { name: 'Profil Zaufany', category: 'gov' },
+  { name: 'KAS', category: 'gov' },
+  { name: 'ZUS', category: 'gov' },
+  // E-commerce & Telekomy
+  { name: 'Allegro', category: 'marketplace' },
+  { name: 'OLX', category: 'marketplace' },
+  { name: 'Vinted', category: 'marketplace' },
+  { name: 'PGE', category: 'telecom' },
+  { name: 'Tauron', category: 'telecom' },
+  { name: 'Orange', category: 'telecom' },
+  { name: 'Play', category: 'telecom' },
+  { name: 'Plus', category: 'telecom' },
+  { name: 'T-Mobile', category: 'telecom' }
+];
+
+/**
+ * Tablica znaków cyrylicy i greki łudząco podobnych do liter alfabetu łacińskiego (homoglify)
+ */
+export const HOMOGLYPH_CYRILLIC_LOOKUPS: Record<string, string> = {
+  '\u0430': 'a', '\u0410': 'A',
+  '\u0435': 'e', '\u0415': 'E',
+  '\u043E': 'o', '\u041E': 'O',
+  '\u0440': 'p', '\u0420': 'P',
+  '\u0441': 'c', '\u0421': 'C',
+  '\u0443': 'y', '\u0423': 'Y',
+  '\u0445': 'x', '\u0425': 'X',
+  '\u0456': 'i', '\u0406': 'I',
+  '\u0458': 'j', '\u0408': 'J',
+  '\u03BF': 'o', '\u039F': 'O'
+};
+
+/**
+ * Oblicza odległość Levenshteina między dwoma ciągami znaków
+ */
+export function computeLevenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const d: number[][] = [];
+
+  for (let i = 0; i <= m; i++) d[i] = [i];
+  for (let j = 0; j <= n; j++) d[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1;
+      d[i][j] = Math.min(
+        d[i - 1][j] + 1,      // usunięcie
+        d[i][j - 1] + 1,      // wstawienie
+        d[i - 1][j - 1] + cost // zamiana
+      );
+    }
+  }
+  return d[m][n];
+}
+
+export interface SpoofSegment {
+  char: string;
+  isSpoofed: boolean;
+  expected?: string;
+  reason?: string;
+}
+
+export interface SpoofDetectionResult {
+  isSuspicious: boolean;
+  originalSender: string;
+  targetBrand: string | null;
+  brandCategory?: string;
+  reason: string | null;
+  segments: SpoofSegment[];
+  distance?: number;
+}
+
+/**
+ * Funkcja wykrywająca fałszywych nadawców SMS (anty-homograf/anty-spoofing)
+ * Porównuje tekstowych nadawców SMS z listą chronionych nazw marek (banki, kurierzy, GOV.PL)
+ * za pomocą odległości Levenshteina i sprawdza mieszanie alfabetów (np. łaciński + cyrylica).
+ */
+export function detectSenderSpoofing(sender: string): SpoofDetectionResult {
+  const trimmed = (sender || '').trim();
+  if (!trimmed || trimmed.startsWith('+') || /^\d+$/.test(trimmed)) {
+    return {
+      isSuspicious: false,
+      originalSender: sender,
+      targetBrand: null,
+      reason: null,
+      segments: trimmed.split('').map(c => ({ char: c, isSpoofed: false }))
+    };
+  }
+
+  // 1. Sprawdzenie mieszania alfabetów (łaciński + cyrylica / greka)
+  const hasLatin = /[a-zA-Z]/.test(trimmed);
+  const hasCyrillic = /[\u0400-\u04FF\u0500-\u052F\u0370-\u03FF]/.test(trimmed);
+  if (hasLatin && hasCyrillic) {
+    let reconstructed = '';
+    const segments: SpoofSegment[] = trimmed.split('').map(char => {
+      const mapped = HOMOGLYPH_CYRILLIC_LOOKUPS[char];
+      if (mapped) {
+        reconstructed += mapped;
+        return {
+          char,
+          isSpoofed: true,
+          expected: mapped,
+          reason: `Znak cyrylicy (${char}) podstawiony pod literę łacińską (${mapped})`
+        };
+      }
+      reconstructed += char;
+      return { char, isSpoofed: false };
+    });
+
+    return {
+      isSuspicious: true,
+      originalSender: trimmed,
+      targetBrand: reconstructed,
+      reason: 'Wykryto mieszanie alfabetu łacińskiego z cyrylicą (atak homograficzny)',
+      segments
+    };
+  }
+
+  // 2. Porównanie z chronionymi markami (banki, kurierzy, GOV.PL) za pomocą odległości Levenshteina i homonimów
+  const lowerTrimmed = trimmed.toLowerCase();
+
+  for (const brand of PROTECTED_BRANDS_REGISTRY) {
+    // Dokładne dopasowanie – legalny nadawca
+    if (trimmed === brand.name) {
+      return {
+        isSuspicious: false,
+        originalSender: trimmed,
+        targetBrand: brand.name,
+        brandCategory: brand.category,
+        reason: null,
+        segments: trimmed.split('').map(c => ({ char: c, isSpoofed: false }))
+      };
+    }
+
+    // A. Przypadek InP0st (cyfra zero '0' zamiast litery 'o')
+    if (brand.name.toLowerCase() === 'inpost' && /inp[0o]st/i.test(trimmed) && trimmed.includes('0')) {
+      const segments: SpoofSegment[] = trimmed.split('').map(c => ({
+        char: c,
+        isSpoofed: c === '0',
+        expected: c === '0' ? 'o' : undefined,
+        reason: c === '0' ? 'Cyfra zero „0” podstawiona pod literę „o”' : undefined
+      }));
+      return {
+        isSuspicious: true,
+        originalSender: trimmed,
+        targetBrand: brand.name,
+        brandCategory: brand.category,
+        reason: `Podrobiony nadawca: użyto cyfry zero „0” w nazwie ${brand.name}`,
+        segments
+      };
+    }
+
+    // B. Przypadek AlIegro (wielkie 'I' zamiast małego 'l')
+    if (brand.name === 'Allegro' && lowerTrimmed === 'allegro') {
+      const segments: SpoofSegment[] = trimmed.split('').map((c, idx) => {
+        const expected = brand.name[idx];
+        const isMismatch = c === 'I' && expected === 'l';
+        return {
+          char: c,
+          isSpoofed: isMismatch,
+          expected: isMismatch ? 'l' : undefined,
+          reason: isMismatch ? 'Wielka litera „I” podstawiona pod małą literę „l”' : undefined
+        };
+      });
+
+      if (segments.some(s => s.isSpoofed)) {
+        return {
+          isSuspicious: true,
+          originalSender: trimmed,
+          targetBrand: brand.name,
+          brandCategory: brand.category,
+          reason: `Wykryto podmianę litery: wielkie „I” zamiast małego „l” w nazwie ${brand.name}`,
+          segments
+        };
+      }
+    }
+
+    // C. Odległość Levenshteina względem chronionej marki
+    const brandLower = brand.name.toLowerCase();
+    const distance = computeLevenshtein(lowerTrimmed, brandLower);
+
+    if ((distance === 1 && brand.name.length >= 3) || (distance === 2 && brand.name.length >= 7)) {
+      const segments: SpoofSegment[] = trimmed.split('').map((c, idx) => {
+        const brandChar = brand.name[idx];
+        const isDiff = !brandChar || c.toLowerCase() !== brandChar.toLowerCase();
+        return {
+          char: c,
+          isSpoofed: isDiff,
+          expected: brandChar,
+          reason: isDiff ? `Znak różni się od oficjalnej nazwy ${brand.name}` : undefined
+        };
+      });
+
+      return {
+        isSuspicious: true,
+        originalSender: trimmed,
+        targetBrand: brand.name,
+        brandCategory: brand.category,
+        reason: `Odległość Levenshteina = ${distance} od chronionej marki ${brand.name} (próba podszycia)`,
+        segments,
+        distance
+      };
+    }
+  }
+
+  return {
+    isSuspicious: false,
+    originalSender: trimmed,
+    targetBrand: null,
+    reason: null,
+    segments: trimmed.split('').map(c => ({ char: c, isSpoofed: false }))
+  };
+}
+
 export function SmsTab() {
   const {
     smsMessages,
@@ -165,6 +413,10 @@ export function SmsTab() {
   const activeThreadLatest = activeThreadMessages[activeThreadMessages.length - 1];
   const activeAddress = activeThreadLatest?.address || newRecipient;
   const activeDisplayName = getContactName(activeAddress);
+  const threadHomograph = useMemo(
+    () => detectSenderSpoofing(activeAddress),
+    [activeAddress]
+  );
 
   const handleOpenThread = (threadId: number) => {
     setSelectedThread(threadId);
@@ -312,68 +564,96 @@ export function SmsTab() {
                 </p>
               </div>
             ) : (
-              visibleThreads.map(t => (
-                <div
-                  key={t.threadId}
-                  onClick={() => handleOpenThread(t.threadId)}
-                  className={`flex items-center justify-between p-3 rounded-2xl transition-all cursor-pointer border ${
-                    t.hasUnread
-                      ? 'bg-[#231A45]/50 border-[#7B4DFF]/30 hover:bg-[#231A45]/80'
-                      : 'bg-[#131424]/80 border-[#272540] hover:bg-[#1A1B30]'
-                  }`}
-                >
-                  <div className="flex items-center gap-3 overflow-hidden flex-1 mr-2">
-                    <div className="relative">
-                      <ContactAvatar name={t.name} size="md" />
-                      {t.hasUnread && (
-                        <span className="w-3 h-3 rounded-full bg-[#7B4DFF] absolute -bottom-0.5 -right-0.5 ring-2 ring-[#0A0A12]" />
-                      )}
-                    </div>
-                    <div className="overflow-hidden flex-1">
-                      <div className="flex items-center justify-between">
+              visibleThreads.map(t => {
+                const itemHomograph = detectSenderSpoofing(t.latestMsg.address);
+                return (
+                  <div
+                    key={t.threadId}
+                    onClick={() => handleOpenThread(t.threadId)}
+                    className={`flex items-center justify-between p-3 rounded-2xl transition-all cursor-pointer border ${
+                      t.hasUnread
+                        ? 'bg-[#231A45]/50 border-[#7B4DFF]/30 hover:bg-[#231A45]/80'
+                        : 'bg-[#131424]/80 border-[#272540] hover:bg-[#1A1B30]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 overflow-hidden flex-1 mr-2">
+                      <div className="relative">
+                        <ContactAvatar name={t.name} size="md" />
+                        {t.hasUnread && (
+                          <span className="w-3 h-3 rounded-full bg-[#7B4DFF] absolute -bottom-0.5 -right-0.5 ring-2 ring-[#0A0A12]" />
+                        )}
+                      </div>
+                      <div className="overflow-hidden flex-1">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 truncate">
+                            {itemHomograph.isSuspicious ? (
+                              <div className="flex items-center gap-1.5 truncate">
+                                <span className="font-mono text-sm font-bold flex items-center">
+                                  {itemHomograph.segments.map((seg, i) =>
+                                    seg.isSpoofed ? (
+                                      <span
+                                        key={i}
+                                        className="bg-red-600 text-white font-black px-1 rounded ring-1 ring-red-400 text-xs inline-block animate-pulse"
+                                        title={seg.reason || 'Znak fałszywy'}
+                                      >
+                                        {seg.char}
+                                      </span>
+                                    ) : (
+                                      <span key={i} className="text-white">{seg.char}</span>
+                                    )
+                                  )}
+                                </span>
+                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-red-500/20 text-red-300 border border-red-500/40 shrink-0">
+                                  ⚠️ Podrobiony ({itemHomograph.targetBrand})
+                                </span>
+                              </div>
+                            ) : (
+                              <p
+                                className={`text-sm truncate ${
+                                  t.hasUnread
+                                    ? 'font-bold text-white'
+                                    : 'font-semibold text-white/90'
+                                }`}
+                              >
+                                {t.name}
+                              </p>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-[#6C6F85] ml-2 flex-shrink-0">
+                            {formatTime(t.latestMsg.time)}
+                          </span>
+                        </div>
                         <p
-                          className={`text-sm truncate ${
-                            t.hasUnread
-                              ? 'font-bold text-white'
-                              : 'font-semibold text-white/90'
+                          className={`text-xs truncate mt-0.5 ${
+                            t.draftText
+                              ? 'text-[#A875FF] font-medium'
+                              : 'text-[#9499AD]'
                           }`}
                         >
-                          {t.name}
+                          {t.draftText
+                            ? `Szkic · ${t.draftText}`
+                            : t.latestMsg.body}
                         </p>
-                        <span className="text-[11px] text-[#6C6F85] ml-2 flex-shrink-0">
-                          {formatTime(t.latestMsg.time)}
-                        </span>
                       </div>
-                      <p
-                        className={`text-xs truncate mt-0.5 ${
-                          t.draftText
-                            ? 'text-[#A875FF] font-medium'
-                            : 'text-[#9499AD]'
-                        }`}
-                      >
-                        {t.draftText
-                          ? `Szkic · ${t.draftText}`
-                          : t.latestMsg.body}
-                      </p>
                     </div>
-                  </div>
 
-                  <button
-                    onClick={e => {
-                      e.stopPropagation();
-                      togglePinThread(t.threadId);
-                    }}
-                    className="p-2 text-[#9499AD] hover:text-[#A875FF] transition-colors"
-                    title={t.isPinned ? 'Odepnij rozmowę' : 'Przypnij rozmowę'}
-                  >
-                    {t.isPinned ? (
-                      <Pin className="w-4 h-4 fill-current text-[#A875FF]" />
-                    ) : (
-                      <PinOff className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-              ))
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        togglePinThread(t.threadId);
+                      }}
+                      className="p-2 text-[#9499AD] hover:text-[#A875FF] transition-colors"
+                      title={t.isPinned ? 'Odepnij rozmowę' : 'Przypnij rozmowę'}
+                    >
+                      {t.isPinned ? (
+                        <Pin className="w-4 h-4 fill-current text-[#A875FF]" />
+                      ) : (
+                        <PinOff className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                );
+              })
             )}
           </div>
 
@@ -414,13 +694,41 @@ export function SmsTab() {
                 size="sm"
               />
               <div className="overflow-hidden">
-                <h3 className="text-sm font-bold text-white truncate">
-                  {composing && !newRecipient ? 'Nowy SMS' : activeDisplayName}
-                </h3>
-                {activeDisplayName !== activeAddress && activeAddress && (
-                  <p className="text-[11px] text-[#9499AD] truncate">
-                    {activeAddress}
+                <div className="flex items-center gap-1.5 truncate">
+                  {composing && !newRecipient ? (
+                    <h3 className="text-sm font-bold text-white truncate">Nowy SMS</h3>
+                  ) : threadHomograph.isSuspicious ? (
+                    <span className="font-mono text-sm font-bold flex items-center">
+                      {threadHomograph.segments.map((seg, i) =>
+                        seg.isSpoofed ? (
+                          <span
+                            key={i}
+                            className="bg-red-600 text-white font-black px-1.5 py-0.2 rounded ring-1 ring-red-400 animate-pulse text-sm inline-block"
+                            title={seg.reason || 'Znak fałszywy'}
+                          >
+                            {seg.char}
+                          </span>
+                        ) : (
+                          <span key={i} className="text-white font-bold">{seg.char}</span>
+                        )
+                      )}
+                    </span>
+                  ) : (
+                    <h3 className="text-sm font-bold text-white truncate">
+                      {activeDisplayName}
+                    </h3>
+                  )}
+                </div>
+                {threadHomograph.isSuspicious ? (
+                  <p className="text-[10px] text-red-400 font-bold flex items-center gap-1 truncate">
+                    <span>⚠️ Wykryto fałszywego nadawcę (udaje {threadHomograph.targetBrand})</span>
                   </p>
+                ) : (
+                  activeDisplayName !== activeAddress && activeAddress && (
+                    <p className="text-[11px] text-[#9499AD] truncate">
+                      {activeAddress}
+                    </p>
+                  )
                 )}
               </div>
             </div>
@@ -463,6 +771,81 @@ export function SmsTab() {
             <div className="px-4 py-1.5 bg-[#1A1B30]/50 text-[11px] text-purple-300 flex items-center gap-2 border-b border-[#272540]/50">
               <CheckCircle2 className="w-3.5 h-3.5 text-[#22C55E]" />
               <span>Operator potwierdził wysłanie. Doręczenie nie jest potwierdzone.</span>
+            </div>
+          )}
+
+          {/* WYKRYWACZ KLONÓW (Anty-Homograf / Anty-Spoofing Sender ID) */}
+          {threadHomograph.isSuspicious && (
+            <div className="mx-3 my-2 p-3.5 bg-gradient-to-b from-[#2D0D14] via-[#1E090E] to-[#140609] border-2 border-red-500/80 rounded-2xl text-left space-y-2.5 shadow-xl shadow-red-500/20 animate-in fade-in duration-300">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-red-600/30 border border-red-500/50 flex items-center justify-center text-red-400">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-red-200 tracking-wide uppercase">
+                      Wykrywacz Klonów (Anty-Spoofing)
+                    </span>
+                    <p className="text-[10px] text-red-400">
+                      Niezamierzona zbieżność lub próba podszycia
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/40">
+                  PODROBIONY NADAWCA
+                </span>
+              </div>
+
+              {/* Wizualizacja homografu litera po literze */}
+              <div className="p-2.5 bg-black/60 rounded-xl border border-red-900/50 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-gray-400 font-sans">
+                  Fałszywy napis:
+                </span>
+                <div className="flex items-center gap-0.5 font-mono">
+                  {threadHomograph.segments.map((seg, i) => (
+                    seg.isSpoofed ? (
+                      <span
+                        key={i}
+                        className="px-2 py-0.5 bg-red-600 text-white font-black text-lg rounded-md ring-2 ring-red-400 animate-pulse inline-flex flex-col items-center"
+                        title={seg.reason || 'Podmieniony znak'}
+                      >
+                        {seg.char}
+                      </span>
+                    ) : (
+                      <span key={i} className="text-white font-bold text-base px-1">
+                        {seg.char}
+                      </span>
+                    )
+                  ))}
+                </div>
+
+                {threadHomograph.targetBrand && (
+                  <span className="text-xs text-red-300 font-sans ml-auto">
+                    Podszycie pod: <strong className="text-white bg-red-950/80 px-1.5 py-0.5 rounded border border-red-800/50">{threadHomograph.targetBrand}</strong>
+                  </span>
+                )}
+              </div>
+
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-2.5 text-[11px] text-red-100/90 leading-relaxed space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p>
+                    ⚠️ <strong>{threadHomograph.reason}</strong>
+                  </p>
+                  {threadHomograph.distance !== undefined && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-red-950/80 border border-red-800 text-red-300 font-bold">
+                      Odległość Levenshteina: {threadHomograph.distance}
+                    </span>
+                  )}
+                  {threadHomograph.reason?.includes('mieszanie') && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950/80 border border-amber-800 text-amber-300 font-bold">
+                      Mieszanie alfabetów (łaciński + cyrylica)
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-red-300">
+                  Oszuści wykorzystują podobieństwo liter (np. cyfry zero zamiast „o”, wielkie litery „I” zamiast „l” lub znaki cyrylicy), aby zmylić odbiorcę i odegrać oficjalną markę. Nie klikaj linków w tej rozmowie!
+                </p>
+              </div>
             </div>
           )}
 
