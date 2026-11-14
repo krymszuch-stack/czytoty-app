@@ -78,9 +78,18 @@ internal fun CallScreen(state: CallSessionState, initialDialpad: Boolean = false
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf<String?>(null) }
+    var localNote by remember(call?.number) { mutableStateOf<com.example.data.PhoneNote?>(null) }
+    var evidenceLoaded by remember(call?.number) { mutableStateOf(false) }
     LaunchedEffect(call?.number) {
         name = null
-        if (!call?.number.isNullOrBlank()) name = withContext(Dispatchers.IO) { runCatching { DialerData.contactName(context, call!!.number) }.getOrNull() }
+        if (!call?.number.isNullOrBlank()) {
+            val raw = call!!.number
+            name = withContext(Dispatchers.IO) { runCatching { DialerData.contactName(context, raw) }.getOrNull() }
+            localNote = withContext(Dispatchers.IO) { runCatching {
+                com.example.data.PhoneNumbers.parse(raw)?.e164?.let { com.example.data.LocalStore.get(context).note(it) }
+            }.getOrNull() }
+        }
+        evidenceLoaded = true
     }
     LaunchedEffect(call?.id) { digits = ""; while (true) { now = System.currentTimeMillis(); delay(1000) } }
     val nearEar = call?.state == Call.STATE_ACTIVE && state.audio.any { it.id == state.selectedAudio && it.nearEar }
@@ -110,7 +119,7 @@ internal fun CallScreen(state: CallSessionState, initialDialpad: Boolean = false
         } else {
             Text(call.stateLabel, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("call_state"))
             Spacer(Modifier.height(16.dp))
-            ContactAvatar(name ?: call.number.ifBlank { "?" }, Modifier.size(112.dp))
+            ContactAvatar(name ?: call.number.ifBlank { "?" }, Modifier.size(if (call.ringing) 80.dp else 112.dp))
             Text(name ?: call.number.ifBlank { if (call.conference) "Konferencja" else "Numer prywatny" }, style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
             if (name != null) Text(call.number, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -125,7 +134,8 @@ internal fun CallScreen(state: CallSessionState, initialDialpad: Boolean = false
                 }
             }
             call.accountChoices.forEach { (index, label) -> FilledTonalButton(onClick = { CallSession.account(call.id, index.toInt()) }) { Text(label) } }
-            Spacer(Modifier.height(if (call.ringing) (LocalConfiguration.current.screenHeightDp * .10f).dp else 24.dp))
+            if (evidenceLoaded && call.number.isNotBlank()) com.example.ui.tabs.NumberEvidenceCard(call.number, localNote, compact = true)
+            Spacer(Modifier.height(if (call.ringing) 8.dp else 24.dp))
             if (call.ringing) {
                 Text("Wyświetlany numer nie potwierdza tożsamości rozmówcy.", style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)

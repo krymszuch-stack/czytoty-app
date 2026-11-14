@@ -336,7 +336,7 @@ private fun SourceCard(state: PrototypeState, now: Long, refresh: () -> Unit) {
 }
 
 @Composable
-private fun AnalysisCard(result: MessageAnalysis, fresh: Boolean) {
+internal fun AnalysisCard(result: MessageAnalysis, fresh: Boolean, sourceLabel: String = "CERT") {
     val matches = result.findings.filter { it.matchedDomain != null }
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(
         containerColor = if (matches.isNotEmpty()) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant
@@ -344,17 +344,17 @@ private fun AnalysisCard(result: MessageAnalysis, fresh: Boolean) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(when {
                 result.snapshotTime == null -> "Brak danych do sprawdzenia domen"
-                matches.isNotEmpty() && fresh -> "Ostrzeżenie CERT: wykryto domenę z listy"
+                matches.isNotEmpty() && fresh -> "Ostrzeżenie $sourceLabel: wykryto domenę z listy"
                 matches.isNotEmpty() -> "Domena figuruje w zapisanej kopii listy"
                 result.findings.isEmpty() -> "Nie znaleziono rozpoznawalnego adresu"
-                else -> "Nie znaleziono domen na liście CERT"
+                else -> "Nie znaleziono domen na liście $sourceLabel"
             }, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("analysis_result"))
-            if (!fresh) Text("Lista nie jest aktualna lub nie została pobrana. Ten wynik nie opisuje bieżącego stanu CERT.")
+            if (!fresh) Text("Lista nie jest aktualna lub nie została pobrana. Ten wynik nie opisuje bieżącego stanu $sourceLabel.")
             result.findings.forEach {
                 Text(it.host, fontWeight = FontWeight.Bold)
                 Text(when {
                     result.snapshotTime == null -> "Nie sprawdzono — brak listy."
-                    it.matchedDomain != null -> "Wpis CERT: ${it.matchedDomain}"
+                    it.matchedDomain != null -> "Wpis $sourceLabel: ${it.matchedDomain}"
                     else -> "Brak wpisu w sprawdzonej kopii. To nie potwierdza bezpieczeństwa."
                 })
             }
@@ -372,6 +372,7 @@ private fun PhoneEditor(phone: ParsedPhone, state: PrototypeState, model: Protot
     var note by remember(phone.e164, saved) { mutableStateOf(saved?.note.orEmpty()) }
     var blocked by remember(phone.e164, saved) { mutableStateOf(saved?.blocked == true) }
     val context = LocalContext.current
+    com.example.ui.tabs.NumberEvidenceCard(phone.e164, saved)
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(phone.formatted, style = MaterialTheme.typography.titleLarge)

@@ -28,6 +28,9 @@ class LocalStore private constructor(context: Context) : SQLiteOpenHelper(contex
     fun isBlocked(phone: String): Boolean = readableDatabase.rawQuery("SELECT blocked FROM phone_notes WHERE phone=?", arrayOf(phone)).use {
         it.moveToFirst() && it.getInt(0) == 1
     }
+    fun note(phone: String): PhoneNote? = readableDatabase.rawQuery("SELECT phone,label,note,blocked FROM phone_notes WHERE phone=?", arrayOf(phone)).use {
+        if (it.moveToFirst()) PhoneNote(it.getString(0), it.getString(1), it.getString(2), it.getInt(3) == 1) else null
+    }
     fun save(note: PhoneNote) {
         require(PhoneNumbers.parse(note.phone)?.e164 == note.phone)
         require(note.label.length <= 80 && note.note.length <= 500)

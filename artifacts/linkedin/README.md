@@ -4,10 +4,24 @@ Przygotowane 8 września 2026. Niczego nie opublikowano.
 
 - [Post do skopiowania](POST-LINKEDIN.md)
 - [Opis projektu i technologii](OPIS-PROJEKTU.md)
+- **[Mechanizm ochrony — scenariusz głównego demo](MECHANIZM-OCHRONY.md)**
+
+## Najpierw pokaż ochronę
+
+Nowa kolejność: **09 → 07 → 10 → 08**, a dopiero potem interfejs i personalizacja.
+
+| Plik | Mechanizm | Tekst alternatywny |
+|---|---|---|
+| `09-ochrona-kto-dzwoni.png` | Rzeczywisty ekran połączenia i odczyt własnej etykiety | Syntetyczne połączenie: bank jako własna etykieta, źródło lokalne i niepotwierdzona tożsamość |
+| `07-ochrona-sms-bank.png` | Analiza fikcyjnego SMS-a i dopasowanie testowej domeny | Ostrzeżenie po dopasowaniu domeny oraz sygnały prośby o hasło i presji czasu |
+| `10-ochrona-blokada.png` | Własna blokada i decyzja usługi filtrowania | Lokalny zapis blokady i trzy etapy odrzucania połączenia przez Androida |
+| `08-ochrona-brak-danych.png` | Ostrożna obsługa braku informacji | Nieznany numer i link bez wpisu: brak potwierdzenia bezpieczeństwa |
+
+Te cztery ujęcia pochodzą z `ProtectionDemoTest`. Testy wykonują rzeczywisty kod analizy i decyzji blokowania, ale nie transmisję operatora. Domena `.example` jest wyłącznie testowym wpisem, co zaznaczono podpisem „DEMO”; nie przedstawiamy jej jako wpisu CERT. „Bank DEMO” to własna etykieta testowa, nie integracja bankowa.
 
 ## Obrazy demo
 
-Sześć PNG w katalogu `demo/`, w rozdzielczości 822 × 1782. Proponowana kolejność załączników:
+Łącznie dziesięć PNG w katalogu `demo/`, w rozdzielczości 822 × 1782. Wcześniejsze sześć ujęć interfejsu:
 
 | Plik | Co pokazuje | Tekst alternatywny |
 |---|---|---|

@@ -6,6 +6,9 @@ CzyToTy? łączy klawiaturę telefonu, podgląd i wysyłkę SMS przez operatora 
 
 ## Interfejs tej iteracji
 
+- Karta informacji o numerze na ekranie połączenia i w edytorze pokazuje źródło danych: własną etykietę, blokadę lub brak notatki. Tożsamość rozmówcy pozostaje jawnie niepotwierdzona.
+- Demo ochrony obejmuje SMS podszywający się pod bank, nieznany numer, własną blokadę i brak domeny na liście. Instrukcja oraz granice: `MECHANIZM-OCHRONY.md`; aktualna weryfikacja APK: `VERIFICATION-OCHRONA.md`.
+
 - Motyw systemowy, jasny i ciemny; akcent lawendowy, oceaniczny lub miętowy; kolory tapety na Androidzie 12+.
 - Ustawienia większego tekstu wiadomości, zwartej listy, zaokrągleń dymków i wibracji klawiatury. Zmiany są widoczne od razu i zapisywane lokalnie.
 - Przypinanie rozmów, filtr przypiętych i nieprzeczytanych, wizualne oznaczenie szkiców.

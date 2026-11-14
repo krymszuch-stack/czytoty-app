@@ -18,7 +18,7 @@ class ScamCallScreeningService : CallScreeningService() {
         val phone = PhoneNumbers.parse(raw)?.e164
         val store = LocalStore.get(this)
         // No network request on this path. Fail open; respond before logging to stay within Android's 5s limit.
-        val blocked = phone != null && runCatching { store.protectionEnabled && store.isBlocked(phone) }.getOrDefault(false)
+        val blocked = runCatching { com.example.data.PhoneProtection.shouldReject(phone, store.protectionEnabled, store::isBlocked) }.getOrDefault(false)
         respondToCall(details, CallResponse.Builder()
             .setDisallowCall(blocked).setRejectCall(blocked)
             .setSkipCallLog(false).setSkipNotification(false).build())

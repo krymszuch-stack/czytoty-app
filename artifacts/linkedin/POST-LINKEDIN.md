@@ -1,20 +1,25 @@
 # Post na LinkedIn — propozycja do publikacji
 
-Rozwijam CzyToTy? — prototyp aplikacji na Androida, który łączy telefon, SMS-y i sprawdzanie podejrzanych wiadomości.
+„Dzień dobry, dzwonię z banku”. Ale czy to naprawdę Ty?
 
-Zależy mi na tym, żeby ochrona była częścią zwykłego korzystania z telefonu. Żeby można było sprawdzić treść SMS-a wtedy, gdy coś budzi wątpliwości, a na co dzień mieć pod ręką wygodną listę rozmów i czytelną klawiaturę.
+Wokół tego pytania rozwijam CzyToTy? — prototyp na Androida, w którym telefon i SMS-y łączą się z informacją o tym, co wiemy o numerze i dlaczego wiadomość powinna wzbudzić ostrożność.
 
-W tej iteracji skupiłem się na interfejsie i personalizacji: jasnym i ciemnym motywie, kolorach akcentu, większym tekście, przypinaniu rozmów i szkicach, które pozostają na urządzeniu. Poprawiłem też wyszukiwanie — znajduje treść we wszystkich wczytanych SMS-ach, również tych wcześniejszych w rozmowie.
+W demo pokazuję mechanizm na konkretnych sytuacjach:
 
-Za sprawdzaniem domen stoi rzeczywista Lista Ostrzeżeń CERT Polska. Analiza wiadomości odbywa się lokalnie. Do opcjonalnej chmury trafiają tylko notatki, które użytkownik sam zdecyduje się zapisać.
+• SMS podszywający się pod bank: aplikacja wyodrębnia domenę i sprawdza ją względem zapisanej listy. Osobno wskazuje wzmiankę o haśle i presję czasu.
+• Nieznany numer: dostajemy informację o braku danych, zamiast automatycznej etykiety „bezpieczny”.
+• Numer opisany jako bank: widać, że to własne oznaczenie użytkownika, a tożsamość rozmówcy pozostaje niepotwierdzona.
+• Własna blokada: lokalna usługa sprawdza zapis w SQLite i może zlecić Androidowi odrzucenie połączenia po włączeniu odpowiedniej roli.
 
-Jest tu dla mnie ważna granica: brak ostrzeżenia nie oznacza, że wiadomość jest bezpieczna, a poprawny numer nie potwierdza tożsamości rozmówcy.
+W aplikacji źródłem domen jest rzeczywista Lista Ostrzeżeń CERT Polska. Wiadomości są analizowane lokalnie, bez wysyłania treści do AI. W publicznym demo używam fikcyjnego SMS-a i testowej listy domen, żeby pokazać ten sam kod bez prywatnych danych i aktywnych podejrzanych linków.
 
-To nadal prototyp. Do pełnego zamiennika systemowych Wiadomości potrzebne są m.in. obsługa MMS/RCS i dalsze testy na telefonie z operatorem. Pokazane ujęcia są podglądami komponentów aplikacji z danymi syntetycznymi.
+To nadal prototyp. Nie ma jeszcze integracji potwierdzającej, że po drugiej stronie rzeczywiście jest bank, ani podłączonej bazy reputacji numerów. Ten etap wymaga wiarygodnego źródła danych i osobnej walidacji.
 
-Co najbardziej ułatwia Wam korzystanie z telefonu i SMS-ów: wyszukiwanie, personalizacja, porządek w rozmowach czy ostrzeżenia przed podejrzaną treścią?
+A codzienna obsługa? Jasny i ciemny motyw, własne kolory, przypinanie rozmów, wyszukiwanie i lokalne szkice. Wygoda ma pomagać korzystać z ochrony.
 
-#Android #UX #JetpackCompose #Cyberbezpieczeństwo #BudowanieProjektów
+Jakiej informacji najbardziej brakuje Wam przy podejrzanym połączeniu: kto dzwoni, skąd pochodzi ocena ryzyka czy co zrobić dalej?
+
+#Cyberbezpieczeństwo #FraudPrevention #Android #UX #BudowanieProjektów
 
 ---
 
